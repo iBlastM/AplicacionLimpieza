@@ -1,3 +1,6 @@
 streamlit
 pandas
 openpyxl
+geopy
+geopandas
+shapely
