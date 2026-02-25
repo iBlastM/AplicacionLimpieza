@@ -1,10 +1,44 @@
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
-from geopy.geocoders import Nominatim
+from geopy.geocoders import Nominatim, ArcGIS, Photon
 from geopy.extra.rate_limiter import RateLimiter
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
+
+
+# ======================================================================
+# Proveedores de geocodificación disponibles
+# ======================================================================
+PROVEEDORES = {
+    "ArcGIS": {
+        "descripcion": "Rápido y gratuito (~20 req/s con concurrencia). Sin API key.",
+        "workers": 8,
+        "delay": 0.05,
+    },
+    "Photon": {
+        "descripcion": "Basado en OpenStreetMap, rápido y sin límites estrictos.",
+        "workers": 6,
+        "delay": 0.1,
+    },
+    "Nominatim": {
+        "descripcion": "OpenStreetMap oficial. Lento (~1 req/s). Ideal para pocas direcciones.",
+        "workers": 1,
+        "delay": 1.1,
+    },
+}
+
+
+def _crear_geocoder(proveedor: str):
+    """Crea la instancia del geocoder según el proveedor seleccionado."""
+    if proveedor == "ArcGIS":
+        return ArcGIS(timeout=10)
+    elif proveedor == "Photon":
+        return Photon(user_agent="metrix_programas_sociales", timeout=10)
+    elif proveedor == "Nominatim":
+        return Nominatim(user_agent="metrix_programas_sociales", timeout=10)
+    else:
+        raise ValueError(f"Proveedor desconocido: {proveedor}")
 
 
 class GeoReferenciador:
@@ -14,12 +48,24 @@ class GeoReferenciador:
         os.path.dirname(__file__), 'SECCION_ELECT_SABANA_2024.geojson'
     )
 
-    def __init__(self, path_geojson: str | None = None):
+    def __init__(self, proveedor: str = "ArcGIS", path_geojson: str | None = None):
+        if proveedor not in PROVEEDORES:
+            raise ValueError(
+                f"Proveedor '{proveedor}' no soportado. "
+                f"Opciones: {list(PROVEEDORES.keys())}"
+            )
+        self.proveedor = proveedor
         self.path_geojson = path_geojson or self.DEFAULT_GEOJSON
         self.gdf: gpd.GeoDataFrame | None = None
-        self._geocoder = Nominatim(user_agent="metrix_programas_sociales", timeout=10)
+
+        config = PROVEEDORES[proveedor]
+        self._max_workers = config["workers"]
+
+        geocoder = _crear_geocoder(proveedor)
         self._geocode = RateLimiter(
-            self._geocoder.geocode, min_delay_seconds=1.1, max_retries=2
+            geocoder.geocode,
+            min_delay_seconds=config["delay"],
+            max_retries=2,
         )
 
     # ------------------------------------------------------------------
@@ -28,7 +74,6 @@ class GeoReferenciador:
     def cargar_geojson(self):
         """Carga el GeoJSON y conserva solo SECCION y geometría."""
         self.gdf = gpd.read_file(self.path_geojson)[['SECCION', 'geometry']]
-        # Asegurar CRS WGS84
         if self.gdf.crs is None or self.gdf.crs.to_epsg() != 4326:
             self.gdf = self.gdf.to_crs(epsg=4326)
         return self
@@ -36,8 +81,8 @@ class GeoReferenciador:
     # ------------------------------------------------------------------
     # Geocodificación
     # ------------------------------------------------------------------
-    def _geocodificar_direccion(self, direccion: str) -> tuple[float | None, float | None]:
-        """Geocodifica una sola dirección. Devuelve (latitud, longitud) o (None, None)."""
+    def _geocodificar_una(self, direccion: str) -> tuple[float | None, float | None]:
+        """Geocodifica una sola dirección. Devuelve (lat, lon) o (None, None)."""
         if not direccion or direccion.strip() == "":
             return (None, None)
         try:
@@ -49,12 +94,17 @@ class GeoReferenciador:
         return (None, None)
 
     def geocodificar_direcciones(
-        self, df: pd.DataFrame, col_direccion: str = "DIRECCION_HOMOLOGADA",
-        callback=None
+        self,
+        df: pd.DataFrame,
+        col_direccion: str = "DIRECCION_HOMOLOGADA",
+        callback=None,
     ) -> pd.DataFrame:
         """
         Geocodifica las direcciones únicas del DataFrame y añade columnas
         LATITUD y LONGITUD.
+
+        Usa concurrencia (ThreadPoolExecutor) cuando el proveedor lo permite
+        para acelerar el proceso significativamente.
 
         Parameters
         ----------
@@ -63,7 +113,7 @@ class GeoReferenciador:
         col_direccion : str
             Nombre de la columna que contiene las direcciones.
         callback : callable, optional
-            Función callback(progreso, total, direccion) para reportar avance.
+            ``callback(progreso, total, direccion)`` para reportar avance.
 
         Returns
         -------
@@ -71,25 +121,48 @@ class GeoReferenciador:
         """
         df = df.copy()
 
-        # 1. Obtener direcciones únicas no vacías
+        # 1. Direcciones únicas no vacías
         direcciones_unicas = (
             df[col_direccion]
             .dropna()
             .loc[lambda s: s.str.strip() != ""]
             .unique()
+            .tolist()
         )
         total = len(direcciones_unicas)
-
-        # 2. Geocodificar cada dirección única
         cache: dict[str, tuple] = {}
-        for i, direccion in enumerate(direcciones_unicas, start=1):
-            cache[direccion] = self._geocodificar_direccion(direccion)
-            if callback:
-                callback(i, total, direccion)
+        progreso_actual = 0
+
+        # 2. Geocodificación concurrente
+        if self._max_workers > 1:
+            with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
+                futuros = {
+                    pool.submit(self._geocodificar_una, d): d
+                    for d in direcciones_unicas
+                }
+                for futuro in as_completed(futuros):
+                    direccion = futuros[futuro]
+                    try:
+                        cache[direccion] = futuro.result()
+                    except Exception:
+                        cache[direccion] = (None, None)
+                    progreso_actual += 1
+                    if callback:
+                        callback(progreso_actual, total, direccion)
+        else:
+            # Secuencial (Nominatim)
+            for i, direccion in enumerate(direcciones_unicas, start=1):
+                cache[direccion] = self._geocodificar_una(direccion)
+                if callback:
+                    callback(i, total, direccion)
 
         # 3. Mapear resultados al DataFrame completo
-        df['LATITUD'] = df[col_direccion].map(lambda d: cache.get(d, (None, None))[0])
-        df['LONGITUD'] = df[col_direccion].map(lambda d: cache.get(d, (None, None))[1])
+        df['LATITUD'] = df[col_direccion].map(
+            lambda d: cache.get(d, (None, None))[0]
+        )
+        df['LONGITUD'] = df[col_direccion].map(
+            lambda d: cache.get(d, (None, None))[1]
+        )
 
         return df
 
@@ -108,7 +181,6 @@ class GeoReferenciador:
 
         df = df.copy()
 
-        # Crear geometría solo para filas con coordenadas válidas
         mask_valido = df['LATITUD'].notna() & df['LONGITUD'].notna()
         geometry = [
             Point(lon, lat) if valido else None
@@ -117,7 +189,6 @@ class GeoReferenciador:
 
         gdf_puntos = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:4326")
 
-        # Spatial join solo con filas que tienen geometría
         gdf_con_geom = gdf_puntos[mask_valido].copy()
         gdf_sin_geom = gdf_puntos[~mask_valido].copy()
 
@@ -125,7 +196,6 @@ class GeoReferenciador:
             resultado = gpd.sjoin(
                 gdf_con_geom, self.gdf, how="left", predicate="within"
             )
-            # Eliminar duplicados por índice (un punto puede caer en overlap)
             resultado = resultado[~resultado.index.duplicated(keep='first')]
             resultado = resultado.rename(columns={'SECCION': 'SECCION_ELECTORAL'})
             gdf_con_geom['SECCION_ELECTORAL'] = resultado['SECCION_ELECTORAL']
@@ -134,10 +204,9 @@ class GeoReferenciador:
 
         gdf_sin_geom['SECCION_ELECTORAL'] = None
 
-        # Recombinar y limpiar
         df_final = pd.concat([gdf_con_geom, gdf_sin_geom]).sort_index()
         df_final = df_final.drop(columns=['geometry'])
-        df_final = pd.DataFrame(df_final)  # volver a DataFrame normal
+        df_final = pd.DataFrame(df_final)
 
         return df_final
 

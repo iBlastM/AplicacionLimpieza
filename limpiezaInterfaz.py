@@ -2,13 +2,13 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from limpieza import LimpiadorProgramasSociales
-from georeferenciacion import GeoReferenciador
+from georeferenciacion import GeoReferenciador, PROVEEDORES
 
 # --- INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(page_title="Limpiador de Programas Sociales", layout="wide")
 
-st.title("Limpiador de Bases de Datos V1.0")
+st.title("Limpiador de Bases de Datos V3.0")
 st.write("Sube tu archivo Excel de Programas Sociales para normalizarlo automáticamente.")
 
 # 1. Subida de Archivo
@@ -30,6 +30,20 @@ if archivo_subido is not None:
                  "Este proceso puede tardar varios minutos dependiendo del número de direcciones únicas."
         )
 
+        # Selector de proveedor (solo visible si el checkbox está activo)
+        proveedor_geo = "ArcGIS"
+        if aplicar_geo:
+            opciones = list(PROVEEDORES.keys())
+            descripciones = [f"{k} — {v['descripcion']}" for k, v in PROVEEDORES.items()]
+            seleccion = st.radio(
+                "Proveedor de geocodificación",
+                options=opciones,
+                captions=[v["descripcion"] for v in PROVEEDORES.values()],
+                index=0,
+                horizontal=True,
+            )
+            proveedor_geo = seleccion
+
         if st.button("Iniciar Limpieza"):
             with st.status("Procesando limpieza de datos...", expanded=True) as status:
                 limpiador = LimpiadorProgramasSociales(df)
@@ -48,7 +62,7 @@ if archivo_subido is not None:
                     progreso_bar.progress(pct, text=f"Geocodificando {actual}/{total}")
                     texto_progreso.caption(f"Procesando: {direccion[:80]}...")
 
-                geo = GeoReferenciador()
+                geo = GeoReferenciador(proveedor=proveedor_geo)
                 geo.cargar_geojson()
 
                 # Geocodificar
