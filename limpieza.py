@@ -195,14 +195,13 @@ class LimpiadorProgramasSociales:
             )
             return self
         self.df['NOMBRE_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.replace(r'^[AZ](?=[A-Z])', '', regex=True)
-        self.df['ANIO_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.extract(r'(\d{4})')[0]
+        self.df['ANIO_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.extract(r'(\d{4})')[0].fillna("")
         self.df['NOMBRE_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.replace(r'\d{4}', '', regex=True)
         self.df['NOMBRE_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.replace(r'\s+', ' ', regex=True).str.strip()
         self.df.loc[
             self.df['NOMBRE_PROGRAMA'] == 'CALENTADOR SOLAR CORREGIDORA 2',
             'NOMBRE_PROGRAMA'
         ] = 'CALENTADOR SOLAR CORREGIDORA'
-        self.df.loc[self.df['ANIO_PROGRAMA'] == 'None', 'ANIO_PROGRAMA'] = ""
         return self
 
     def limpiar_codigo_postal_y_parentesco(self):
