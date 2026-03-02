@@ -143,7 +143,10 @@ class GeoReferenciador:
                 for futuro in as_completed(futuros):
                     direccion = futuros[futuro]
                     try:
-                        cache[direccion] = futuro.result()
+                        res = futuro.result() 
+                        lat = round(res[0], 5) if res[0] is not None else None
+                        lon = round(res[1], 5) if res[1] is not None else None
+                        cache[direccion] = (lat, lon)
                     except Exception:
                         cache[direccion] = (None, None)
                     progreso_actual += 1
@@ -152,7 +155,10 @@ class GeoReferenciador:
         else:
             # Secuencial (Nominatim)
             for i, direccion in enumerate(direcciones_unicas, start=1):
-                cache[direccion] = self._geocodificar_una(direccion)
+                res = self._geocodificar_una(direccion)
+                lat = round(res[0], 5) if res[0] is not None else None
+                lon = round(res[1], 5) if res[1] is not None else None
+                cache[direccion] = (lat, lon)
                 if callback:
                     callback(i, total, direccion)
 

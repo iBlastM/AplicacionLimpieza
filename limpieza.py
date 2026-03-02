@@ -190,12 +190,12 @@ class LimpiadorProgramasSociales:
         """Paso 7: Procesamiento de Nombre y Año del Programa."""
         if 'NOMBRE_PROGRAMA' not in self.df.columns:
             self.advertencias.append(
-                "No se pudo procesar NOMBRE_PROGRAMA ni crear ANO_PROGRAMA: "
+                "No se pudo procesar NOMBRE_PROGRAMA ni crear ANIO_PROGRAMA: "
                 "la columna 'NOMBRE_PROGRAMA' (originalmente 'Nombre.1') fue eliminada."
             )
             return self
         self.df['NOMBRE_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.replace(r'^[AZ](?=[A-Z])', '', regex=True)
-        self.df['ANO_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.extract(r'(\d{4})')[0]
+        self.df['ANIO_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.extract(r'(\d{4})')[0]
         self.df['NOMBRE_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.replace(r'\d{4}', '', regex=True)
         self.df['NOMBRE_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.replace(r'\s+', ' ', regex=True).str.strip()
         self.df.loc[
