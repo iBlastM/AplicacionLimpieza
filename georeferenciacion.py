@@ -73,7 +73,7 @@ class GeoReferenciador:
     # ------------------------------------------------------------------
     def cargar_geojson(self):
         """Carga el GeoJSON y conserva solo SECCION y geometría."""
-        self.gdf = gpd.read_file(self.path_geojson)[['SECCION', 'geometry']]
+        self.gdf = gpd.read_file(self.path_geojson)[['DISTRITO_F', 'DISTRITO_L', 'SECCION', 'geometry']]
         if self.gdf.crs is None or self.gdf.crs.to_epsg() != 4326:
             self.gdf = self.gdf.to_crs(epsg=4326)
         return self
@@ -199,10 +199,16 @@ class GeoReferenciador:
             resultado = resultado[~resultado.index.duplicated(keep='first')]
             resultado = resultado.rename(columns={'SECCION': 'SECCION_ELECTORAL'})
             gdf_con_geom['SECCION_ELECTORAL'] = resultado['SECCION_ELECTORAL']
+            gdf_con_geom['DISTRITO_F'] = resultado['DISTRITO_F']
+            gdf_con_geom['DISTRITO_L'] = resultado['DISTRITO_L']
         else:
             gdf_con_geom['SECCION_ELECTORAL'] = pd.Series(dtype='float64')
+            gdf_con_geom['DISTRITO_F'] = pd.Series(dtype='object')
+            gdf_con_geom['DISTRITO_L'] = pd.Series(dtype='object')
 
         gdf_sin_geom['SECCION_ELECTORAL'] = None
+        gdf_sin_geom['DISTRITO_F'] = None
+        gdf_sin_geom['DISTRITO_L'] = None
 
         df_final = pd.concat([gdf_con_geom, gdf_sin_geom]).sort_index()
         df_final = df_final.drop(columns=['geometry'])

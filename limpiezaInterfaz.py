@@ -1,27 +1,71 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
+import json
+from io import BytesIO, StringIO
 from limpieza import LimpiadorProgramasSociales
 from georeferenciacion import GeoReferenciador, PROVEEDORES
+
+
+def df_a_geojson(df: pd.DataFrame) -> bytes:
+    """Convierte un DataFrame a GeoJSON (FeatureCollection).
+    Usa LATITUD/LONGITUD para geometría Point si existen; de lo contrario null.
+    """
+    tiene_geo = {'LATITUD', 'LONGITUD'}.issubset(df.columns)
+    features = []
+    for _, fila in df.iterrows():
+        if tiene_geo and pd.notna(fila.get('LATITUD')) and pd.notna(fila.get('LONGITUD')):
+            geometry = {
+                "type": "Point",
+                "coordinates": [float(fila['LONGITUD']), float(fila['LATITUD'])]
+            }
+        else:
+            geometry = None
+        properties = {col: (None if pd.isna(v) else v) for col, v in fila.items()}
+        features.append({"type": "Feature", "geometry": geometry, "properties": properties})
+    return json.dumps({"type": "FeatureCollection", "features": features}, ensure_ascii=False, indent=2).encode('utf-8')
 
 # --- INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(page_title="Limpiador de Programas Sociales", layout="wide")
 
-st.title("Limpiador de Bases de Datos V3.0")
+st.title("Limpiador de Bases de Datos V4.0")
 st.write("Sube tu archivo Excel de Programas Sociales para normalizarlo automáticamente.")
 
 # 1. Subida de Archivo
-archivo_subido = st.file_uploader("Elige un archivo Excel (.xlsx)", type=["xlsx"])
+archivo_subido = st.file_uploader(
+    "Elige un archivo Excel (.xlsx) o CSV (.csv)",
+    type=["xlsx", "csv"]
+)
 
 if archivo_subido is not None:
     try:
         # Cargar datos
-        df = pd.read_excel(archivo_subido)
+        nombre_archivo = archivo_subido.name
+        if nombre_archivo.endswith('.csv'):
+            df = pd.read_csv(archivo_subido, encoding='utf-8', on_bad_lines='skip')
+        else:
+            df = pd.read_excel(archivo_subido)
         st.success("Archivo cargado con éxito.")
         
         with st.expander("Ver vista previa de datos originales"):
             st.dataframe(df.head(10))
+
+        # --- Selección de columnas ---
+        with st.expander("Columnas a eliminar (opcional)", expanded=False):
+            st.caption(
+                "Selecciona las columnas que deseas excluir antes de la normalización. "
+                "Si eliminas una columna que otro paso necesita, se mostrará un aviso "
+                "pero el proceso continuará sin detenerse."
+            )
+            columnas_a_eliminar = st.multiselect(
+                "Columnas a eliminar",
+                options=df.columns.tolist(),
+                default=[],
+                placeholder="Ninguna — todas las columnas se conservarán",
+                label_visibility="collapsed",
+            )
+            if columnas_a_eliminar:
+                st.warning(f"Se eliminarán {len(columnas_a_eliminar)} columna(s): {', '.join(columnas_a_eliminar)}")
 
         # Opción de georeferenciación
         aplicar_geo = st.checkbox(
@@ -45,11 +89,21 @@ if archivo_subido is not None:
             proveedor_geo = seleccion
 
         if st.button("Iniciar Limpieza"):
+            # Aplicar eliminación de columnas seleccionadas
+            if columnas_a_eliminar:
+                df = df.drop(columns=columnas_a_eliminar)
+
             with st.status("Procesando limpieza de datos...", expanded=True) as status:
                 limpiador = LimpiadorProgramasSociales(df)
-                df = limpiador.ejecutar_limpieza()
+                df, advertencias = limpiador.ejecutar_limpieza()
                 
             status.update(label="¡Limpieza terminada!", state="complete", expanded=False)
+
+            # Mostrar advertencias del pipeline
+            if advertencias:
+                with st.expander(f"⚠️ {len(advertencias)} aviso(s) durante la normalización", expanded=True):
+                    for aviso in advertencias:
+                        st.warning(aviso)
 
             # --- Georeferenciación opcional ---
             if aplicar_geo:
@@ -87,16 +141,47 @@ if archivo_subido is not None:
             st.subheader("Resultado Final")
             st.dataframe(df.head(10))
 
-            # 3. Descarga del archivo
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # 3. Opciones de descarga
+            st.subheader("Descargar resultado")
+            col_csv, col_xlsx, col_geo = st.columns(3)
+
+            # --- CSV ---
+            csv_bytes = df.to_csv(index=False).encode('utf-8')
+            col_csv.download_button(
+                label="Descargar CSV",
+                data=csv_bytes,
+                file_name="base_limpia.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+            # --- Excel ---
+            output_xlsx = BytesIO()
+            with pd.ExcelWriter(output_xlsx, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False, sheet_name='Limpio')
-            
-            st.download_button(
-                label="Descargar Base Limpia (Excel)",
-                data=output.getvalue(),
+            col_xlsx.download_button(
+                label="Descargar Excel (.xlsx)",
+                data=output_xlsx.getvalue(),
                 file_name="base_limpia.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
+            # --- GeoJSON ---
+            tiene_geo = {'LATITUD', 'LONGITUD'}.issubset(df.columns)
+            geo_help = (
+                "Incluye geometría Point para cada registro georeferenciado."
+                if tiene_geo else
+                "Sin coordenadas — las geometrías serán null. "
+                "Activa la georeferenciación para obtener un GeoJSON con geometría."
+            )
+            col_geo.download_button(
+                label="Descargar GeoJSON",
+                data=df_a_geojson(df),
+                file_name="base_limpia.geojson",
+                mime="application/geo+json",
+                use_container_width=True,
+                help=geo_help,
             )
 
     except Exception as e:
