@@ -28,7 +28,7 @@ def df_a_geojson(df: pd.DataFrame) -> bytes:
 
 st.set_page_config(page_title="Limpiador de Programas Sociales", layout="wide")
 
-st.title("Limpiador de Bases de Datos V4.0")
+st.title("Limpiador de Bases de Datos V4.2")
 st.write("Sube tu archivo Excel de Programas Sociales para normalizarlo automáticamente.")
 
 # 1. Subida de Archivo

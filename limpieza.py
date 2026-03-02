@@ -202,6 +202,7 @@ class LimpiadorProgramasSociales:
             self.df['NOMBRE_PROGRAMA'] == 'CALENTADOR SOLAR CORREGIDORA 2',
             'NOMBRE_PROGRAMA'
         ] = 'CALENTADOR SOLAR CORREGIDORA'
+        self.df.loc[self.df['ANIO_PROGRAMA'] == 'None', 'ANIO_PROGRAMA'] = ""
         return self
 
     def limpiar_codigo_postal_y_parentesco(self):
