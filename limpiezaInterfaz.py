@@ -28,7 +28,7 @@ def df_a_geojson(df: pd.DataFrame) -> bytes:
 
 st.set_page_config(page_title="Limpiador de Programas Sociales", layout="wide")
 
-st.title("Limpiador de Bases de Datos V4.2")
+st.title("Limpiador de Bases de Datos V4.3")
 st.write("Sube tu archivo Excel de Programas Sociales para normalizarlo automáticamente.")
 
 # 1. Subida de Archivo
@@ -67,14 +67,53 @@ if archivo_subido is not None:
             if columnas_a_eliminar:
                 st.warning(f"Se eliminarán {len(columnas_a_eliminar)} columna(s): {', '.join(columnas_a_eliminar)}")
 
-        # Opción de georeferenciación
+        # --- Mapeo de columnas ---
+        mapeo_personalizado = {}
+        with st.expander("Mapeo de columnas (homologación)", expanded=False):
+            st.caption(
+                "Define cómo se relacionan las columnas de tu archivo con los campos estándar del sistema."
+            )
+            modo_mapeo = st.radio(
+                "Modo de detección de columnas",
+                options=["Automático", "Manual"],
+                horizontal=True,
+                help=(
+                    "**Automático:** el script detecta columnas por nombre conocido "
+                    "(p.ej. 'NumExt' -> NUM\_EXT). "
+                    "**Manual:** tú defines explícitamente qué columna de tu archivo "
+                    "corresponde a cada campo estándar."
+                ),
+            )
+            if modo_mapeo == "Manual":
+                st.caption(
+                    "Selecciona qué columna de tu archivo corresponde a cada campo estándar. "
+                    "Las entradas marcadas con '—' se omiten del mapeo personalizado."
+                )
+                opciones_col = ["—"] + df.columns.tolist()
+                col_izq, col_der = st.columns(2)
+                items = list(LimpiadorProgramasSociales.COLUMNAS_OBJETIVO.items())
+                for i, (col_std, descripcion) in enumerate(items):
+                    with (col_izq if i % 2 == 0 else col_der):
+                        seleccion = st.selectbox(
+                            descripcion,
+                            options=opciones_col,
+                            key=f"mapeo_{col_std}",
+                            help=f"Campo estándar de destino: `{col_std}`",
+                        )
+                        if seleccion != "—":
+                            mapeo_personalizado[seleccion] = col_std
+                if mapeo_personalizado:
+                    st.info(
+                        f"{len(mapeo_personalizado)} columna(s) mapeada(s) manualmente: "
+                        + ", ".join(f"{k} -> {v}" for k, v in mapeo_personalizado.items())
+                    )
+
         aplicar_geo = st.checkbox(
             "Aplicar Georeferenciación",
             help="Geocodifica las direcciones y asigna sección electoral. "
                  "Este proceso puede tardar varios minutos dependiendo del número de direcciones únicas."
         )
 
-        # Selector de proveedor (solo visible si el checkbox está activo)
         proveedor_geo = "ArcGIS"
         if aplicar_geo:
             opciones = list(PROVEEDORES.keys())
@@ -89,23 +128,20 @@ if archivo_subido is not None:
             proveedor_geo = seleccion
 
         if st.button("Iniciar Limpieza"):
-            # Aplicar eliminación de columnas seleccionadas
             if columnas_a_eliminar:
                 df = df.drop(columns=columnas_a_eliminar)
 
             with st.status("Procesando limpieza de datos...", expanded=True) as status:
-                limpiador = LimpiadorProgramasSociales(df)
+                limpiador = LimpiadorProgramasSociales(df, mapeo_columnas=mapeo_personalizado)
                 df, advertencias = limpiador.ejecutar_limpieza()
                 
             status.update(label="¡Limpieza terminada!", state="complete", expanded=False)
 
-            # Mostrar advertencias del pipeline
             if advertencias:
-                with st.expander(f"⚠️ {len(advertencias)} aviso(s) durante la normalización", expanded=True):
+                with st.expander(f"{len(advertencias)} aviso(s) durante la normalización", expanded=True):
                     for aviso in advertencias:
                         st.warning(aviso)
 
-            # --- Georeferenciación opcional ---
             if aplicar_geo:
                 st.subheader("Georeferenciación")
                 progreso_bar = st.progress(0, text="Iniciando geocodificación...")
@@ -123,7 +159,6 @@ if archivo_subido is not None:
                 df = geo.geocodificar_direcciones(df, callback=actualizar_progreso)
                 progreso_bar.progress(1.0, text="Geocodificación completada")
 
-                # Asignar sección electoral
                 texto_progreso.caption("Calculando secciones electorales...")
                 df = geo.asignar_seccion_electoral(df)
                 texto_progreso.caption("")
@@ -137,11 +172,9 @@ if archivo_subido is not None:
                     f"{con_seccion} con sección electoral asignada."
                 )
 
-            # 2. Vista previa del resultado
             st.subheader("Resultado Final")
             st.dataframe(df.head(10))
 
-            # 3. Opciones de descarga
             st.subheader("Descargar resultado")
             col_csv, col_xlsx, col_geo = st.columns(3)
 
@@ -188,4 +221,4 @@ if archivo_subido is not None:
         st.error(f"Ocurrió un error al procesar el archivo: {e}")
 
 else:
-    st.info("A la espera de un archivo Excel.")
+    st.info("A la espera de un archivo.")

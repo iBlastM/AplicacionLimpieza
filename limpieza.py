@@ -6,6 +6,27 @@ import re
 class LimpiadorProgramasSociales:
     """Clase que encapsula toda la lógica de limpieza para bases de datos de Programas Sociales."""
 
+    COLUMNAS_OBJETIVO = {
+        'CURP':             'CURP / Identificador',
+        'NOMBRE_PROGRAMA':  'Nombre del Programa',
+        'ID_USUARIO':       'ID Usuario',
+        'ID_PERSONA':       'ID Persona',
+        'NOMBRE(S)_DE_PILA':'Nombre(s) de Pila',
+        'AP_PATERNO':       'Apellido Paterno',
+        'AP_MATERNO':       'Apellido Materno',
+        'FECHA_NACIMIENTO': 'Fecha de Nacimiento',
+        'FECHA_REGISTRO':   'Fecha de Registro',
+        'NUM_EXT':          'Número Exterior',
+        'NUM_INT':          'Número Interior',
+        'CODIGO_POSTAL':    'Código Postal',
+        'ID_PARENTESCO':    'ID Parentesco',
+        'TELEFONO':         'Teléfono',
+        'CELULAR':          'Celular',
+        'CORREO':           'Correo Electrónico',
+        'CALLE':            'Calle',
+        'COLONIA':          'Colonia',
+    }
+
     # Valores considerados basura en calles
     BASURA_CALLES = [
         'DOMICILIO CONOCIDO', 'SIN NOMBRE', 'SN', 'S/N',
@@ -14,9 +35,10 @@ class LimpiadorProgramasSociales:
 
     VALORES_VACIOS = ["", "NAN", "nan"]
 
-    def __init__(self, df: pd.DataFrame):
+    def __init__(self, df: pd.DataFrame, mapeo_columnas: dict[str, str] | None = None):
         self.df = df.copy()
         self.advertencias: list[str] = []
+        self.mapeo_columnas: dict[str, str] = mapeo_columnas or {}
 
     def _tiene_columnas(self, *columnas: str) -> bool:
         """Devuelve True si todas las columnas existen; si no, registra una advertencia."""
@@ -44,7 +66,7 @@ class LimpiadorProgramasSociales:
 
     @staticmethod
     def limpiar_calle_larga(calle: str) -> str:
-        """Recorta calles con más de 50 caracteres dejando solo la parte alfabética inicial."""
+        """Recorta calles con más de 50 caracteres dejando solo la parte alfabetica inicial."""
         calle = str(calle).strip()
         if len(calle) > 50:
             match = re.search(r'^([^0-9]+)', calle)
@@ -54,7 +76,7 @@ class LimpiadorProgramasSociales:
 
     @staticmethod
     def limpiar_num_ext(valor) -> str:
-        """Limpia números exteriores e interiores eliminando basura común."""
+        """Limpia numeros exteriores e interiores eliminando basura comun."""
         valor = str(valor).strip()
         valor = valor.replace('-', '')
         if re.search(r'\d+\.\d+', valor):
@@ -66,7 +88,7 @@ class LimpiadorProgramasSociales:
 
     @classmethod
     def concatenar_direccion_logica(cls, fila: pd.Series) -> str:
-        """Genera la dirección homologada a partir de los campos individuales."""
+        """Genera la direccion homologada a partir de los campos individuales."""
         calle = str(fila['CALLE']).strip()
         next_ = str(fila['NUM_EXT']).strip()
         nint = str(fila['NUM_INT']).strip()
@@ -118,8 +140,35 @@ class LimpiadorProgramasSociales:
         return self
 
     def homologar_nombres_columnas(self):
-        """Paso 3: Homologación de nombres de columnas a mayúsculas y formato estándar."""
+        """Paso 3: Homologacion de nombres de columnas a mayusculas y formato estandar."""
         self.df.columns = self.df.columns.str.upper()
+
+        self.df.columns = (
+            self.df.columns
+            .str.replace('Ñ', 'NI')
+            .str.normalize('NFKD')
+            .str.encode('ascii', errors='ignore')
+            .str.decode('utf-8')
+        )   
+
+        if self.mapeo_columnas:
+            mapeo_upper = {
+                k.upper(): v
+                for k, v in self.mapeo_columnas.items()
+                if k.upper() in self.df.columns
+            }
+            if mapeo_upper:
+                fuentes = set(mapeo_upper.keys())
+                for destino in set(mapeo_upper.values()):
+                    if destino in self.df.columns and destino not in fuentes:
+                        self.df = self.df.drop(columns=[destino])
+                        self.advertencias.append(
+                            f"La columna '{destino}' fue reemplazada por el mapeo personalizado del usuario."
+                        )
+                self.df = self.df.rename(columns=mapeo_upper)
+
+        columnas_ya_mapeadas = set(self.mapeo_columnas.values()) if self.mapeo_columnas else set()
+
         rename_map_hom = {
             'IDUSUARIO': 'ID_USUARIO', 'IDPERSONA': 'ID_PERSONA',
             'NOMBRE': 'NOMBRE(S)_DE_PILA', 'APELLIDOPATERNO': 'AP_PATERNO',
@@ -128,7 +177,10 @@ class LimpiadorProgramasSociales:
             'CODIGOPOSTAL': 'CODIGO_POSTAL', 'FECHAREGISTRO': 'FECHA_REGISTRO',
             'IDPARENTESCO': 'ID_PARENTESCO'
         }
-        rename_map_hom = {k: v for k, v in rename_map_hom.items() if k in self.df.columns}
+        rename_map_hom = {
+            k: v for k, v in rename_map_hom.items()
+            if k in self.df.columns and v not in columnas_ya_mapeadas
+        }
         self.df = self.df.rename(columns=rename_map_hom)
         return self
     
@@ -141,15 +193,16 @@ class LimpiadorProgramasSociales:
                 "ApellidoPaterno, ApellidoMaterno, Nombre."
             )
             return self
-        self.df['NOMBRE_PRE'] = (
+        self.df['NOMBRE_PRE'] = ((
             self.df['ApellidoPaterno'] + " " +
             self.df['ApellidoMaterno'] + " " +
-            self.df['Nombre']
+            self.df['Nombre'])
+            .str.title()
         )
         return self
 
     def crear_campos_compuestos(self):
-        """Paso 4: Creación de campos compuestos y ubicación estática."""
+        """Paso 4: Creacion de campos compuestos y ubicación estatica."""
         requeridas_nc = ['AP_PATERNO', 'AP_MATERNO', 'NOMBRE(S)_DE_PILA']
         if all(c in self.df.columns for c in requeridas_nc):
             self.df['NOMBRE_COMPLETO'] = (
@@ -165,7 +218,7 @@ class LimpiadorProgramasSociales:
         return self
 
     def limpiar_telefonos(self):
-        """Paso 5: Limpieza de Teléfonos y Celulares."""
+        """Paso 5: Limpieza de Telefonos y Celulares."""
         for col in ['TELEFONO', 'CELULAR']:
             if col not in self.df.columns:
                 self.advertencias.append(f"Columna '{col}' no encontrada; se omitió su limpieza.")
@@ -195,7 +248,7 @@ class LimpiadorProgramasSociales:
             )
             return self
         self.df['NOMBRE_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.replace(r'^[AZ](?=[A-Z])', '', regex=True)
-        self.df['ANIO_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.extract(r'(\d{4})')[0].fillna("")
+        self.df['ANIO_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.extract(r'(\d{4})').iloc[:, 0].fillna("")
         self.df['NOMBRE_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.replace(r'\d{4}', '', regex=True)
         self.df['NOMBRE_PROGRAMA'] = self.df['NOMBRE_PROGRAMA'].str.replace(r'\s+', ' ', regex=True).str.strip()
         self.df.loc[
@@ -205,7 +258,7 @@ class LimpiadorProgramasSociales:
         return self
 
     def limpiar_codigo_postal_y_parentesco(self):
-        """Paso 8: Limpieza de Código Postal y Parentesco."""
+        """Paso 8: Limpieza de Codigo Postal y Parentesco."""
         if 'CODIGO_POSTAL' in self.df.columns:
             self.df['CODIGO_POSTAL'] = self.df['CODIGO_POSTAL'].astype(str).str.replace(r'\D', '', regex=True)
             mask_cp = (self.df['CODIGO_POSTAL'].str.len() == 5) & (self.df['CODIGO_POSTAL'] != 'nan')
@@ -223,7 +276,7 @@ class LimpiadorProgramasSociales:
         return self
 
     def convertir_fechas(self):
-        """Paso 9: Conversión de fechas de Excel (serial) a formato legible."""
+        """Paso 9: Conversion de fechas de Excel (serial) a formato legible."""
         for col in ['FECHA_NACIMIENTO', 'FECHA_REGISTRO']:
             if col not in self.df.columns:
                 self.advertencias.append(f"Columna '{col}' no encontrada; se omitió la conversión de fecha.")
@@ -232,15 +285,16 @@ class LimpiadorProgramasSociales:
                 pd.to_numeric(self.df[col], errors='coerce'),
                 unit='D', origin='1899-12-30'
             )
-            self.df[col] = self.df[col].dt.strftime('%d/%m/%Y').replace(['NaT', 'nan', 'NaN'], "")
+            self.df[col] = self.df[col].dt.strftime('%d/%m/%Y')
+            self.df[col] = self.df[col].where(~self.df[col].isin(['NaT', 'nan', 'NaN', 'None']), other="")
         return self
 
     def limpiar_direcciones(self):
-        """Paso 10: Limpieza de Direcciones (Calles, Números, Colonias)."""
+        """Paso 10: Limpieza de Direcciones (Calles, Numeros, Colonias)."""
         for col in ['NUM_EXT', 'NUM_INT']:
             if col in self.df.columns:
-                self.df[col] = self.df[col].apply(self.limpiar_num_ext)
-                self.df.loc[self.df[col] == '0', col] = ''
+                self.df[col] = self.df[col].apply(self.limpiar_num_ext).astype(str)
+                self.df.loc[self.df[col].isin(['0', 'nan', 'None']), col] = ''
             else:
                 self.advertencias.append(f"Columna '{col}' no encontrada; se omitió su limpieza.")
 
@@ -270,7 +324,7 @@ class LimpiadorProgramasSociales:
         return self
 
     def crear_direccion_homologada(self):
-        """Paso 11: Creación de Dirección Homologada."""
+        """Paso 11: Creacion de Direccion Homologada."""
         requeridas_dir = ['CALLE', 'NUM_EXT', 'NUM_INT', 'COLONIA', 'MUNICIPIO', 'ESTADO', 'CODIGO_POSTAL']
         faltantes_dir = [c for c in requeridas_dir if c not in self.df.columns]
         if faltantes_dir:
@@ -278,7 +332,6 @@ class LimpiadorProgramasSociales:
                 f"DIRECCION_HOMOLOGADA se creará de forma parcial; "
                 f"falta(n): {', '.join(faltantes_dir)}."
             )
-            # Rellenar columnas faltantes con string vacío temporalmente
             df_tmp = self.df.copy()
             for c in faltantes_dir:
                 df_tmp[c] = ""
