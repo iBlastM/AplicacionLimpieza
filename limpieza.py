@@ -133,7 +133,7 @@ class LimpiadorProgramasSociales:
     def limpiar_cadenas_y_texto(self):
         """Paso 2: Limpieza general de cadenas y texto."""
         self.df = self.df.apply(lambda x: " ".join(x.split()) if isinstance(x, str) else x)
-        columnas_limpiar = ['Nombre', 'ApellidoPaterno', 'ApellidoMaterno', 'Calle', 'Colonia', 'NOMBRE_PROGRAMA']
+        columnas_limpiar = ['NOMBRE', 'AP_PATERNO', 'AP_MATERNO', 'CALLE', 'COLONIA', 'NOMBRE_PROGRAMA']
         for columna in columnas_limpiar:
             if columna in self.df.columns:
                 self.df[columna] = self.df[columna].apply(self.limpiar_texto)
@@ -186,17 +186,17 @@ class LimpiadorProgramasSociales:
     
     def crear_columna_nombrePRE(self):
         """Paso 3.5: Crear columna NOMBRE_PRE con el nombre original antes de limpieza."""
-        requeridas = ['ApellidoPaterno', 'ApellidoMaterno', 'Nombre']
+        requeridas = ['AP_PATERNO', 'AP_MATERNO', 'NOMBRE(S)_DE_PILA']
         if not self._tiene_columnas(*requeridas):
             self.advertencias.append(
                 "No se pudo crear NOMBRE_PRE: faltan una o más de las columnas "
-                "ApellidoPaterno, ApellidoMaterno, Nombre."
+                "AP_PATERNO, AP_MATERNO o NOMBRE(S)_DE_PILA."
             )
             return self
         self.df['NOMBRE_PRE'] = ((
-            self.df['ApellidoPaterno'] + " " +
-            self.df['ApellidoMaterno'] + " " +
-            self.df['Nombre'])
+            self.df['AP_PATERNO'] + " " +
+            self.df['AP_MATERNO'] + " " +
+            self.df['NOMBRE(S)_DE_PILA'])
             .str.title()
         )
         return self
@@ -339,6 +339,16 @@ class LimpiadorProgramasSociales:
         else:
             self.df['DIRECCION_HOMOLOGADA'] = self.df.apply(self.concatenar_direccion_logica, axis=1)
         return self
+    
+    def limpieza_nones(self, dfFinal: pd.DataFrame) -> pd.DataFrame:
+        """Paso 12: Limpieza final de valores None o NaN en todo el DataFrame."""
+        dfFinal = dfFinal.replace({None: "", pd.NA: "", float('nan'): ""})
+        return dfFinal
+    
+    def eliminar_espacios_columnas(self):
+        """Paso 13: Eliminar espacios en blanco en los nombres de columnas."""
+        self.df.columns = self.df.columns.str.replace(r'\s+', '_', regex=True)
+        return self
 
     def ejecutar_limpieza(self) -> tuple[pd.DataFrame, list[str]]:
         """Ejecuta todo el pipeline de limpieza en orden.
@@ -347,10 +357,10 @@ class LimpiadorProgramasSociales:
             (df_limpio, advertencias) — el DataFrame normalizado y la lista de avisos
             generados por columnas faltantes o procesamiento parcial.
         """
-        self.crear_columna_nombrePRE()
         self.renombrar_y_eliminar_columnas()
-        self.limpiar_cadenas_y_texto()
         self.homologar_nombres_columnas()
+        self.crear_columna_nombrePRE()
+        self.limpiar_cadenas_y_texto()
         self.crear_campos_compuestos()
         self.limpiar_telefonos()
         self.limpiar_correo()
@@ -359,4 +369,5 @@ class LimpiadorProgramasSociales:
         self.convertir_fechas()
         self.limpiar_direcciones()
         self.crear_direccion_homologada()
+        self.eliminar_espacios_columnas()
         return self.df, self.advertencias

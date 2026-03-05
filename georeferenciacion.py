@@ -29,6 +29,55 @@ PROVEEDORES = {
 }
 
 
+# ======================================================================
+# Capas GeoJSON disponibles para spatial join
+# Cada capa define: ruta al archivo y mapeo {columna_origen: columna_salida}
+# ======================================================================
+_BASE = os.path.dirname(__file__)
+
+CAPAS_GEOJSON: dict = {
+    "SECCION_ELECT_SABANA_2024": {
+        "path": os.path.join(_BASE, "GEOJSON/SECCION_ELECT_SABANA_2024.geojson"),
+        "columnas": {
+            "SECCION": "SECCION_ELECTORAL",
+            "DISTRITO_F": "DISTRITO_F",
+            "DISTRITO_L": "DISTRITO_L",
+        },
+    },
+    "COL_LOC_EDO_QRO": {
+        "path": os.path.join(_BASE, "GEOJSON/COL_LOC_EDO_QRO.geojson"),
+        "columnas": {"NOM_COL": "NOM_COL"},
+    },
+    "CP_EDO_QRO": {
+        "path": os.path.join(_BASE, "GEOJSON/CP_EDO_QRO.geojson"),
+        "columnas": {"C_P": "C_P"},
+    },
+    "DELEGACIONES_QRO_CORR": {
+        "path": os.path.join(_BASE, "GEOJSON/DELEGACIONES_QRO_CORR.geojson"),
+        "columnas": {"NOM_DEL": "NOM_DEL"},
+    },
+    "SE_EDO_QRO_24_25": {
+        "path": os.path.join(_BASE, "GEOJSON/SE_EDO_QRO_24_25.geojson"),
+        "columnas": {
+            "CIRCUNSCRI": "CIRCUNSCRI",
+            "24_D_FEDERAL": "24_D_FEDERAL",
+            "24_D_LOCAL": "24_D_LOCAL",
+            "24_SECCION": "24_SECCION",
+            "25_D_FEDERAL": "25_D_FEDERAL",
+            "25_D_LOCAL": "25_D_LOCAL",
+            "25_SECCION": "25_SECCION",
+        },
+    },
+}
+
+# Mapa inverso: nombre_columna_salida -> (capa_key, columna_origen)
+COLUMNAS_DISPONIBLES: dict[str, tuple[str, str]] = {
+    out_col: (capa_key, src_col)
+    for capa_key, capa in CAPAS_GEOJSON.items()
+    for src_col, out_col in capa["columnas"].items()
+}
+
+
 def _crear_geocoder(proveedor: str):
     """Crea la instancia del geocoder según el proveedor seleccionado."""
     if proveedor == "ArcGIS":
@@ -42,21 +91,21 @@ def _crear_geocoder(proveedor: str):
 
 
 class GeoReferenciador:
-    """Clase que geocodifica direcciones y asigna sección electoral usando un GeoJSON."""
+    """Clase que geocodifica direcciones y asigna atributos geográficos mediante spatial join."""
 
-    DEFAULT_GEOJSON = os.path.join(
-        os.path.dirname(__file__), 'SECCION_ELECT_SABANA_2024.geojson'
-    )
-
-    def __init__(self, proveedor: str = "ArcGIS", path_geojson: str | None = None):
+    def __init__(
+        self,
+        proveedor: str = "ArcGIS",
+        columnas_deseadas: list[str] | None = None,
+    ):
         if proveedor not in PROVEEDORES:
             raise ValueError(
                 f"Proveedor '{proveedor}' no soportado. "
                 f"Opciones: {list(PROVEEDORES.keys())}"
             )
         self.proveedor = proveedor
-        self.path_geojson = path_geojson or self.DEFAULT_GEOJSON
-        self.gdf: gpd.GeoDataFrame | None = None
+        self.columnas_deseadas: list[str] = columnas_deseadas or list(COLUMNAS_DISPONIBLES.keys())
+        self._gdfs: dict[str, gpd.GeoDataFrame] = {}
 
         config = PROVEEDORES[proveedor]
         self._max_workers = config["workers"]
@@ -69,13 +118,25 @@ class GeoReferenciador:
         )
 
     # ------------------------------------------------------------------
-    # Carga del GeoJSON de secciones electorales
+    # Carga de GeoJSONs
     # ------------------------------------------------------------------
     def cargar_geojson(self):
-        """Carga el GeoJSON y conserva solo SECCION y geometría."""
-        self.gdf = gpd.read_file(self.path_geojson)[['DISTRITO_F', 'DISTRITO_L', 'SECCION', 'geometry']]
-        if self.gdf.crs is None or self.gdf.crs.to_epsg() != 4326:
-            self.gdf = self.gdf.to_crs(epsg=4326)
+        """Carga únicamente los GeoJSONs necesarios para las columnas deseadas."""
+        capas_necesarias = {
+            COLUMNAS_DISPONIBLES[col][0]
+            for col in self.columnas_deseadas
+            if col in COLUMNAS_DISPONIBLES
+        }
+        self._gdfs = {}
+        for capa_key in capas_necesarias:
+            capa = CAPAS_GEOJSON[capa_key]
+            src_cols = list(capa["columnas"].keys())
+            gdf = gpd.read_file(capa["path"])
+            geo_col = gdf.geometry.name
+            gdf = gdf[src_cols + [geo_col]]
+            if gdf.crs is None or gdf.crs.to_epsg() != 4326:
+                gdf = gdf.to_crs(epsg=4326)
+            self._gdfs[capa_key] = gdf
         return self
 
     # ------------------------------------------------------------------
@@ -173,48 +234,64 @@ class GeoReferenciador:
         return df
 
     # ------------------------------------------------------------------
-    # Asignación de sección electoral
+    # Asignacion de columnas geograficas via spatial join
     # ------------------------------------------------------------------
     def asignar_seccion_electoral(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Asigna a cada registro su SECCION_ELECTORAL haciendo un spatial join
-        entre los puntos (LATITUD, LONGITUD) y los polígonos del GeoJSON.
+        Asigna columnas geográficas a cada registro mediante spatial join con
+        los poligonos de los GeoJSONs configurados en ``CAPAS_GEOJSON``.
+        Solo procesa las columnas presentes en ``self.columnas_deseadas``.
 
-        Registros sin coordenadas válidas recibirán NaN en SECCION_ELECTORAL.
+        Registros sin coordenadas válidas recibirán None en todas las columnas.
         """
-        if self.gdf is None:
+        if not self._gdfs:
             self.cargar_geojson()
 
         df = df.copy()
 
         mask_valido = df['LATITUD'].notna() & df['LONGITUD'].notna()
         geometry = [
-            Point(lon, lat) if valido else None
+            Point(lon, lat) if valido else ""
             for lat, lon, valido in zip(df['LATITUD'], df['LONGITUD'], mask_valido)
         ]
 
         gdf_puntos = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:4326")
-
         gdf_con_geom = gdf_puntos[mask_valido].copy()
         gdf_sin_geom = gdf_puntos[~mask_valido].copy()
 
-        if not gdf_con_geom.empty:
-            resultado = gpd.sjoin(
-                gdf_con_geom, self.gdf, how="left", predicate="within"
-            )
-            resultado = resultado[~resultado.index.duplicated(keep='first')]
-            resultado = resultado.rename(columns={'SECCION': 'SECCION_ELECTORAL'})
-            gdf_con_geom['SECCION_ELECTORAL'] = resultado['SECCION_ELECTORAL']
-            gdf_con_geom['DISTRITO_F'] = resultado['DISTRITO_F']
-            gdf_con_geom['DISTRITO_L'] = resultado['DISTRITO_L']
-        else:
-            gdf_con_geom['SECCION_ELECTORAL'] = pd.Series(dtype='float64')
-            gdf_con_geom['DISTRITO_F'] = pd.Series(dtype='object')
-            gdf_con_geom['DISTRITO_L'] = pd.Series(dtype='object')
+        out_cols = [c for c in self.columnas_deseadas if c in COLUMNAS_DISPONIBLES]
 
-        gdf_sin_geom['SECCION_ELECTORAL'] = None
-        gdf_sin_geom['DISTRITO_F'] = None
-        gdf_sin_geom['DISTRITO_L'] = None
+        # Inicializar con None las filas sin geometría
+        for col in out_cols:
+            gdf_sin_geom[col] = ""
+
+        # Spatial join capa por capa
+        for capa_key, gdf_ref in self._gdfs.items():
+            capa = CAPAS_GEOJSON[capa_key]
+            cols_para_capa = {
+                src: out for src, out in capa["columnas"].items()
+                if out in self.columnas_deseadas
+            }
+            if not cols_para_capa:
+                continue
+
+            if gdf_con_geom.empty:
+                for out_col in cols_para_capa.values():
+                    gdf_con_geom[out_col] = pd.Series(dtype='object')
+                continue
+
+            puntos = gpd.GeoDataFrame(geometry=gdf_con_geom.geometry, crs="EPSG:4326")
+            geo_col = gdf_ref.geometry.name
+            joined = gpd.sjoin(
+                puntos,
+                gdf_ref[list(cols_para_capa.keys()) + [geo_col]],
+                how="left",
+                predicate="within",
+            )
+            joined = joined[~joined.index.duplicated(keep='first')]
+
+            for src_col, out_col in cols_para_capa.items():
+                gdf_con_geom[out_col] = joined[src_col]
 
         df_final = pd.concat([gdf_con_geom, gdf_sin_geom]).sort_index()
         df_final = df_final.drop(columns=['geometry'])
@@ -231,3 +308,4 @@ class GeoReferenciador:
         df = self.geocodificar_direcciones(df, callback=callback)
         df = self.asignar_seccion_electoral(df)
         return df
+    

@@ -3,7 +3,8 @@ import pandas as pd
 import json
 from io import BytesIO, StringIO
 from limpieza import LimpiadorProgramasSociales
-from georeferenciacion import GeoReferenciador, PROVEEDORES
+from georeferenciacion import GeoReferenciador, PROVEEDORES, CAPAS_GEOJSON, COLUMNAS_DISPONIBLES
+from mapa_componente import mostrar_mapa_geo
 
 
 def df_a_geojson(df: pd.DataFrame) -> bytes:
@@ -28,7 +29,7 @@ def df_a_geojson(df: pd.DataFrame) -> bytes:
 
 st.set_page_config(page_title="Limpiador de Programas Sociales", layout="wide")
 
-st.title("Limpiador de Bases de Datos V4.3")
+st.title("Limpiador de Bases de Datos V5.0")
 st.write("Sube tu archivo Excel de Programas Sociales para normalizarlo automáticamente.")
 
 # 1. Subida de Archivo
@@ -46,7 +47,20 @@ if archivo_subido is not None:
         else:
             df = pd.read_excel(archivo_subido)
         st.success("Archivo cargado con éxito.")
-        
+
+        # Limpiar resultados anteriores cuando se sube un archivo diferente
+        if st.session_state.get("_ultimo_archivo") != nombre_archivo:
+            for _k in ["_resultado_procesado", "_mapa_correcciones"]:
+                st.session_state.pop(_k, None)
+            st.session_state["_ultimo_archivo"] = nombre_archivo
+
+        total_cargados = len(df)
+        duplicados_cargados = int(df.duplicated().sum())
+        col_tot, col_dup, col_uniq = st.columns(3)
+        col_tot.metric("Total de registros", f"{total_cargados:,}")
+        col_dup.metric("Registros duplicados", f"{duplicados_cargados:,}")
+        col_uniq.metric("Registros únicos", f"{total_cargados - duplicados_cargados:,}")
+
         with st.expander("Ver vista previa de datos originales"):
             st.dataframe(df.head(10))
 
@@ -115,6 +129,7 @@ if archivo_subido is not None:
         )
 
         proveedor_geo = "ArcGIS"
+        columnas_geo_seleccionadas = list(COLUMNAS_DISPONIBLES.keys())
         if aplicar_geo:
             opciones = list(PROVEEDORES.keys())
             descripciones = [f"{k} — {v['descripcion']}" for k, v in PROVEEDORES.items()]
@@ -127,6 +142,24 @@ if archivo_subido is not None:
             )
             proveedor_geo = seleccion
 
+            st.markdown("**Columnas a agregar mediante spatial join**")
+            st.caption(
+                "Capas disponibles: "
+                + " | ".join(
+                    f"**{k}**: {', '.join(v['columnas'].values())}"
+                    for k, v in CAPAS_GEOJSON.items()
+                )
+            )
+            columnas_geo_seleccionadas = st.multiselect(
+                "Columnas geográficas",
+                options=list(COLUMNAS_DISPONIBLES.keys()),
+                default=list(COLUMNAS_DISPONIBLES.keys()),
+                help=(
+                    "Selecciona qué columnas incorporar al resultado vía spatial join. "
+                    "Desmarcar columnas de capas que no necesitas acelera el proceso."
+                ),
+            )
+
         if st.button("Iniciar Limpieza"):
             if columnas_a_eliminar:
                 df = df.drop(columns=columnas_a_eliminar)
@@ -134,13 +167,14 @@ if archivo_subido is not None:
             with st.status("Procesando limpieza de datos...", expanded=True) as status:
                 limpiador = LimpiadorProgramasSociales(df, mapeo_columnas=mapeo_personalizado)
                 df, advertencias = limpiador.ejecutar_limpieza()
-                
-            status.update(label="¡Limpieza terminada!", state="complete", expanded=False)
 
-            if advertencias:
-                with st.expander(f"{len(advertencias)} aviso(s) durante la normalización", expanded=True):
-                    for aviso in advertencias:
-                        st.warning(aviso)
+                # Eliminar duplicados
+                registros_antes_dedup = len(df)
+                subset_dedup = ['CURP'] if 'CURP' in df.columns else None
+                df = df.drop_duplicates(subset=subset_dedup)
+                duplicados_eliminados = registros_antes_dedup - len(df)
+
+            status.update(label="¡Limpieza terminada!", state="complete", expanded=False)
 
             if aplicar_geo:
                 st.subheader("Georeferenciación")
@@ -152,7 +186,7 @@ if archivo_subido is not None:
                     progreso_bar.progress(pct, text=f"Geocodificando {actual}/{total}")
                     texto_progreso.caption(f"Procesando: {direccion[:80]}...")
 
-                geo = GeoReferenciador(proveedor=proveedor_geo)
+                geo = GeoReferenciador(proveedor=proveedor_geo, columnas_deseadas=columnas_geo_seleccionadas)
                 geo.cargar_geojson()
 
                 # Geocodificar
@@ -165,21 +199,71 @@ if archivo_subido is not None:
 
                 geocodificados = df['LATITUD'].notna().sum()
                 total_registros = len(df)
-                con_seccion = df['SECCION_ELECTORAL'].notna().sum()
-                st.success(
+                cols_asignadas = {
+                    col: int(df[col].notna().sum())
+                    for col in columnas_geo_seleccionadas
+                    if col in df.columns
+                }
+                detalle = ", ".join(f"{col}: {n}" for col, n in cols_asignadas.items())
+                msg_geo = (
                     f"Georeferenciación completada: "
-                    f"{geocodificados}/{total_registros} registros geocodificados, "
-                    f"{con_seccion} con sección electoral asignada."
+                    f"{geocodificados}/{total_registros} registros geocodificados. "
+                    f"Columnas asignadas — {detalle}."
                 )
+            else:
+                msg_geo = ""
+
+            # Guardar en session_state para que persista entre reruns
+            # (antes de limpieza_nones para conservar floats en LATITUD/LONGITUD)
+            st.session_state["_resultado_procesado"] = {
+                "df": df,
+                "geo_aplicado": aplicar_geo,
+                "registros_antes": registros_antes_dedup,
+                "duplicados_eliminados": duplicados_eliminados,
+                "advertencias": advertencias,
+                "msg_geo": msg_geo,
+            }
+            # Reiniciar correcciones de mapa al reprocesar
+            st.session_state.pop("_mapa_correcciones", None)
+
+        # ----------------------------------------------------------------
+        # Seccion de resultados: se renderiza con lo almacenado en
+        # session_state para que persista durante la interacción con el mapa.
+        # ----------------------------------------------------------------
+        if "_resultado_procesado" in st.session_state:
+            _res = st.session_state["_resultado_procesado"]
+            _df  = _res["df"]
+
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Registros antes de limpieza", f"{_res['registros_antes']:,}")
+            col_m2.metric("Duplicados eliminados",       f"{_res['duplicados_eliminados']:,}")
+            col_m3.metric("Registros finales",           f"{len(_df):,}")
+
+            if _res["advertencias"]:
+                with st.expander(
+                    f"{len(_res['advertencias'])} aviso(s) durante la normalización",
+                    expanded=True,
+                ):
+                    for aviso in _res["advertencias"]:
+                        st.warning(aviso)
+
+            if _res["geo_aplicado"]:
+                if _res["msg_geo"]:
+                    st.success(_res["msg_geo"])
+                # Mostrar mapa interactivo con editor de correcciones
+                _df = mostrar_mapa_geo(_df)
+
+            # Limpieza final de nulos (se aplica sobre el df ya corregido)
+            _df_final = _df.replace({None: "", pd.NA: "", float('nan'): ""})
 
             st.subheader("Resultado Final")
-            st.dataframe(df.head(10))
+            st.dataframe(_df_final.head(10))
 
             st.subheader("Descargar resultado")
             col_csv, col_xlsx, col_geo = st.columns(3)
 
             # --- CSV ---
-            csv_bytes = df.to_csv(index=False).encode('utf-8')
+            csv_bytes = _df_final.to_csv(index=False).encode('utf-8')
             col_csv.download_button(
                 label="Descargar CSV",
                 data=csv_bytes,
@@ -191,7 +275,7 @@ if archivo_subido is not None:
             # --- Excel ---
             output_xlsx = BytesIO()
             with pd.ExcelWriter(output_xlsx, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Limpio')
+                _df_final.to_excel(writer, index=False, sheet_name='Limpio')
             col_xlsx.download_button(
                 label="Descargar Excel (.xlsx)",
                 data=output_xlsx.getvalue(),
@@ -201,7 +285,7 @@ if archivo_subido is not None:
             )
 
             # --- GeoJSON ---
-            tiene_geo = {'LATITUD', 'LONGITUD'}.issubset(df.columns)
+            tiene_geo = {'LATITUD', 'LONGITUD'}.issubset(_df.columns)
             geo_help = (
                 "Incluye geometría Point para cada registro georeferenciado."
                 if tiene_geo else
@@ -210,7 +294,7 @@ if archivo_subido is not None:
             )
             col_geo.download_button(
                 label="Descargar GeoJSON",
-                data=df_a_geojson(df),
+                data=df_a_geojson(_df),
                 file_name="base_limpia.geojson",
                 mime="application/geo+json",
                 use_container_width=True,
