@@ -4,3 +4,4 @@ openpyxl
 geopy
 geopandas
 shapely
+plotly

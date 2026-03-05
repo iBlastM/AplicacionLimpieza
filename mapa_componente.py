@@ -1,6 +1,6 @@
 """
 mapa_componente.py
-Componente de Streamlit que muestra el mapa de geocodificación y permite
+Componente de Streamlit que muestra el mapa de geocodificacion y permite
 editar las coordenadas de los puntos que cayeron fuera del municipio.
 
 Uso:
