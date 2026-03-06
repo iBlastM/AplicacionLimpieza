@@ -24,10 +24,6 @@ _RUTA_GEOJSON = os.path.join(_BASE, "GEOJSON", "Corregidora.geojson")
 _KEY_CORRECCIONES = "_mapa_correcciones"
 
 
-# ---------------------------------------------------------------------------
-# Función pública
-# ---------------------------------------------------------------------------
-
 def mostrar_mapa_geo(df: pd.DataFrame) -> pd.DataFrame:
     """Muestra mapa Plotly, dashboard de estadísticas y editor de correcciones.
 
@@ -262,7 +258,7 @@ def _editor_puntos_fuera(df: pd.DataFrame, fuera: pd.DataFrame) -> pd.DataFrame:
         df_editor = df_editor.reset_index(drop=True)
 
         # La clave incluye el número de correcciones aplicadas para que el
-        # widget se reinicie tras cada aplicación (evita que Streamlit restaure
+        # widget se reinicie tras cada aplicacion (evita que Streamlit restaure
         # los valores anteriores desde session_state).
         editor_key = f"_editor_fuera_v{n_correcciones}"
 
