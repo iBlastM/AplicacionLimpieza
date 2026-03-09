@@ -323,8 +323,46 @@ class LimpiadorProgramasSociales:
             self.advertencias.append("Columna 'COLONIA' no encontrada; se omitió su limpieza.")
         return self
 
+    def parsear_direccion_completa(self):
+        """Paso 10.5: Parsear columna DIRECCION_COMPLETA (separada por comas) en campos individuales.
+
+        Formato esperado: CALLE, NUM_EXT, NUM_INT, COLONIA, CODIGO_POSTAL
+        Si faltan partes, todos los campos individuales quedan vacíos.
+        """
+        if 'DIRECCION_COMPLETA' not in self.df.columns:
+            return self
+
+        CAMPOS = ['CALLE', 'NUM_EXT', 'NUM_INT', 'COLONIA', 'CODIGO_POSTAL']
+        NUM_PARTES = len(CAMPOS)
+
+        def _parsear(valor):
+            partes = [p.strip() for p in str(valor).split(',')]
+            if len(partes) >= NUM_PARTES:
+                return partes[:NUM_PARTES]
+            return [''] * NUM_PARTES
+
+        parsed = self.df['DIRECCION_COMPLETA'].apply(_parsear)
+        for i, campo in enumerate(CAMPOS):
+            self.df[campo] = [fila[i] for fila in parsed]
+        return self
+
     def crear_direccion_homologada(self):
         """Paso 11: Creacion de Direccion Homologada."""
+        if 'DIRECCION_COMPLETA' in self.df.columns:
+            # Modo dirección completa: DIRECCION_COMPLETA + MUNICIPIO + ESTADO
+            self.df['DIRECCION_HOMOLOGADA'] = self.df.apply(
+                lambda fila: ", ".join(
+                    p for p in [
+                        str(fila.get('DIRECCION_COMPLETA', '')).strip(),
+                        str(fila.get('MUNICIPIO', '')).strip(),
+                        str(fila.get('ESTADO', '')).strip(),
+                    ]
+                    if p and p not in self.VALORES_VACIOS
+                ),
+                axis=1,
+            )
+            return self
+
         requeridas_dir = ['CALLE', 'NUM_EXT', 'NUM_INT', 'COLONIA', 'MUNICIPIO', 'ESTADO', 'CODIGO_POSTAL']
         faltantes_dir = [c for c in requeridas_dir if c not in self.df.columns]
         if faltantes_dir:
@@ -365,6 +403,7 @@ class LimpiadorProgramasSociales:
         self.limpiar_telefonos()
         self.limpiar_correo()
         self.procesar_programa()
+        self.parsear_direccion_completa()
         self.limpiar_codigo_postal_y_parentesco()
         self.convertir_fechas()
         self.limpiar_direcciones()

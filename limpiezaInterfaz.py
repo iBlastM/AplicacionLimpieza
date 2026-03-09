@@ -5,6 +5,7 @@ from io import BytesIO, StringIO
 from limpieza import LimpiadorProgramasSociales
 from georeferenciacion import GeoReferenciador, PROVEEDORES, CAPAS_GEOJSON, COLUMNAS_DISPONIBLES
 from mapa_componente import mostrar_mapa_geo
+from acomodador import mostrar_acomodador, _KEY_ORDEN as _KEY_ORDEN_COLS
 
 
 def df_a_geojson(df: pd.DataFrame) -> bytes:
@@ -29,7 +30,7 @@ def df_a_geojson(df: pd.DataFrame) -> bytes:
 
 st.set_page_config(page_title="Limpiador de Programas Sociales", layout="wide")
 
-st.title("Limpiador de Bases de Datos V5.0")
+st.title("Limpiador de Bases de Datos V6.0")
 st.write("Sube tu archivo Excel de Programas Sociales para normalizarlo automáticamente.")
 
 # 1. Subida de Archivo
@@ -50,7 +51,7 @@ if archivo_subido is not None:
 
         # Limpiar resultados anteriores cuando se sube un archivo diferente
         if st.session_state.get("_ultimo_archivo") != nombre_archivo:
-            for _k in ["_resultado_procesado", "_mapa_correcciones"]:
+            for _k in ["_resultado_procesado", "_mapa_correcciones", _KEY_ORDEN_COLS]:
                 st.session_state.pop(_k, None)
             st.session_state["_ultimo_archivo"] = nombre_archivo
 
@@ -104,9 +105,19 @@ if archivo_subido is not None:
                     "Las entradas marcadas con '—' se omiten del mapeo personalizado."
                 )
                 opciones_col = ["—"] + df.columns.tolist()
+                CAMPOS_PERSONA = {
+                    'CURP', 'NOMBRE_PROGRAMA', 'ID_USUARIO', 'ID_PERSONA',
+                    'NOMBRE(S)_DE_PILA', 'AP_PATERNO', 'AP_MATERNO',
+                    'FECHA_NACIMIENTO', 'FECHA_REGISTRO', 'ID_PARENTESCO',
+                    'TELEFONO', 'CELULAR', 'CORREO',
+                }
+                CAMPOS_DIRECCION = {'NUM_EXT', 'NUM_INT', 'CODIGO_POSTAL', 'CALLE', 'COLONIA'}
+                items_persona   = [(k, v) for k, v in LimpiadorProgramasSociales.COLUMNAS_OBJETIVO.items() if k in CAMPOS_PERSONA]
+                items_direccion = [(k, v) for k, v in LimpiadorProgramasSociales.COLUMNAS_OBJETIVO.items() if k in CAMPOS_DIRECCION]
+
+                st.markdown("**Apartado Persona**")
                 col_izq, col_der = st.columns(2)
-                items = list(LimpiadorProgramasSociales.COLUMNAS_OBJETIVO.items())
-                for i, (col_std, descripcion) in enumerate(items):
+                for i, (col_std, descripcion) in enumerate(items_persona):
                     with (col_izq if i % 2 == 0 else col_der):
                         seleccion = st.selectbox(
                             descripcion,
@@ -116,6 +127,49 @@ if archivo_subido is not None:
                         )
                         if seleccion != "—":
                             mapeo_personalizado[seleccion] = col_std
+
+                st.markdown("**Apartado Dirección**")
+                usar_dir_completa = st.checkbox(
+                    "Usar columna de dirección completa (todos los campos en una sola columna, separados por comas)",
+                    key="usar_dir_completa",
+                    help=(
+                        "Activa esta opción si tu archivo tiene una sola columna con la dirección completa "
+                        "en el formato: **CALLE, NUM_EXT, NUM_INT, COLONIA, CODIGO_POSTAL**. "
+                        "Si algún campo falta, las columnas individuales quedarán vacías pero la dirección "
+                        "homologada se generará como: DIRECCION_COMPLETA, MUNICIPIO, ESTADO."
+                    ),
+                )
+
+                if usar_dir_completa:
+                    seleccion_dir = st.selectbox(
+                        "Dirección Completa",
+                        options=opciones_col,
+                        key="mapeo_DIRECCION_COMPLETA",
+                        help=(
+                            "Columna de tu archivo que contiene la dirección en formato: "
+                            "CALLE, NUM_EXT, NUM_INT, COLONIA, CODIGO_POSTAL"
+                        ),
+                    )
+                    if seleccion_dir != "—":
+                        mapeo_personalizado[seleccion_dir] = "DIRECCION_COMPLETA"
+                        st.caption(
+                            f"Se mapeará **{seleccion_dir}** → `DIRECCION_COMPLETA`. "
+                            "Las columnas CALLE, NUM_EXT, NUM_INT, COLONIA y CODIGO_POSTAL "
+                            "se generarán automáticamente a partir de esta columna."
+                        )
+                else:
+                    col_izq2, col_der2 = st.columns(2)
+                    for i, (col_std, descripcion) in enumerate(items_direccion):
+                        with (col_izq2 if i % 2 == 0 else col_der2):
+                            seleccion = st.selectbox(
+                                descripcion,
+                                options=opciones_col,
+                                key=f"mapeo_{col_std}",
+                                help=f"Campo estándar de destino: `{col_std}`",
+                            )
+                            if seleccion != "—":
+                                mapeo_personalizado[seleccion] = col_std
+
                 if mapeo_personalizado:
                     st.info(
                         f"{len(mapeo_personalizado)} columna(s) mapeada(s) manualmente: "
@@ -146,14 +200,13 @@ if archivo_subido is not None:
             st.caption(
                 "Capas disponibles: "
                 + " | ".join(
-                    f"**{k}**: {', '.join(v['columnas'].values())}"
+                    f"**{k}**: {', '.join(v['columnas'].keys())}"
                     for k, v in CAPAS_GEOJSON.items()
                 )
             )
             columnas_geo_seleccionadas = st.multiselect(
                 "Columnas geográficas",
                 options=list(COLUMNAS_DISPONIBLES.keys()),
-                default=list(COLUMNAS_DISPONIBLES.keys()),
                 help=(
                     "Selecciona qué columnas incorporar al resultado vía spatial join. "
                     "Desmarcar columnas de capas que no necesitas acelera el proceso."
@@ -252,6 +305,10 @@ if archivo_subido is not None:
                     st.success(_res["msg_geo"])
                 # Mostrar mapa interactivo con editor de correcciones
                 _df = mostrar_mapa_geo(_df)
+
+            # Acomodador de columnas
+            with st.expander("Ordenar columnas", expanded=False):
+                _df = mostrar_acomodador(_df)
 
             # Limpieza final de nulos (se aplica sobre el df ya corregido)
             _df_final = _df.replace({None: "", pd.NA: "", float('nan'): ""})

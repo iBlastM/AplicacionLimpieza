@@ -39,42 +39,39 @@ CAPAS_GEOJSON: dict = {
     "SECCION_ELECT_SABANA_2024": {
         "path": os.path.join(_BASE, "GEOJSON/SECCION_ELECT_SABANA_2024.geojson"),
         "columnas": {
-            "SECCION": "SECCION_ELECTORAL",
-            "DISTRITO_F": "DISTRITO_F",
-            "DISTRITO_L": "DISTRITO_L",
+            "SECCION_ELECTORAL_2024": "SECCION",
+            "DISTRITO_FEDERAL_2024": "DISTRITO_F",
+            "DISTRITO_LOCAL_2024": "DISTRITO_L",
         },
     },
     "COL_LOC_EDO_QRO": {
         "path": os.path.join(_BASE, "GEOJSON/COL_LOC_EDO_QRO.geojson"),
-        "columnas": {"NOM_COL": "NOM_COL"},
+        "columnas": {"COLONIA_GEO": "NOM_COL"},
     },
     "CP_EDO_QRO": {
         "path": os.path.join(_BASE, "GEOJSON/CP_EDO_QRO.geojson"),
-        "columnas": {"C_P": "C_P"},
+        "columnas": {"CODIGO_POSTAL_GEO": "C_P"},
     },
     "DELEGACIONES_QRO_CORR": {
         "path": os.path.join(_BASE, "GEOJSON/DELEGACIONES_QRO_CORR.geojson"),
-        "columnas": {"NOM_DEL": "NOM_DEL"},
+        "columnas": {"DELEGACION": "NOM_DEL"},
     },
     "SE_EDO_QRO_24_25": {
         "path": os.path.join(_BASE, "GEOJSON/SE_EDO_QRO_24_25.geojson"),
         "columnas": {
-            "CIRCUNSCRI": "CIRCUNSCRI",
-            "24_D_FEDERAL": "24_D_FEDERAL",
-            "24_D_LOCAL": "24_D_LOCAL",
-            "24_SECCION": "24_SECCION",
-            "25_D_FEDERAL": "25_D_FEDERAL",
-            "25_D_LOCAL": "25_D_LOCAL",
-            "25_SECCION": "25_SECCION",
+            "CIRCUNSCRIPCION": "CIRCUNSCRI",
+            "DISTRITO_FEDERAL_2025": "25_D_FEDERAL",
+            "DISTRITO_LOCAL_2025": "25_D_LOCAL",
+            "SECCION_ELECTORAL_2025": "25_SECCION",
         },
     },
 }
 
-# Mapa inverso: nombre_columna_salida -> (capa_key, columna_origen)
+# Mapa: nombre_columna_salida (key de columnas) -> (capa_key, columna_origen_geojson)
 COLUMNAS_DISPONIBLES: dict[str, tuple[str, str]] = {
     out_col: (capa_key, src_col)
     for capa_key, capa in CAPAS_GEOJSON.items()
-    for src_col, out_col in capa["columnas"].items()
+    for out_col, src_col in capa["columnas"].items()
 }
 
 
@@ -104,7 +101,7 @@ class GeoReferenciador:
                 f"Opciones: {list(PROVEEDORES.keys())}"
             )
         self.proveedor = proveedor
-        self.columnas_deseadas: list[str] = columnas_deseadas or list(COLUMNAS_DISPONIBLES.keys())
+        self.columnas_deseadas: list[str] = columnas_deseadas 
         self._gdfs: dict[str, gpd.GeoDataFrame] = {}
 
         config = PROVEEDORES[proveedor]
@@ -130,7 +127,7 @@ class GeoReferenciador:
         self._gdfs = {}
         for capa_key in capas_necesarias:
             capa = CAPAS_GEOJSON[capa_key]
-            src_cols = list(capa["columnas"].keys())
+            src_cols = list(capa["columnas"].values())  # nombres reales en el GeoJSON
             gdf = gpd.read_file(capa["path"])
             geo_col = gdf.geometry.name
             gdf = gdf[src_cols + [geo_col]]
@@ -269,8 +266,8 @@ class GeoReferenciador:
         for capa_key, gdf_ref in self._gdfs.items():
             capa = CAPAS_GEOJSON[capa_key]
             cols_para_capa = {
-                src: out for src, out in capa["columnas"].items()
-                if out in self.columnas_deseadas
+                src_col: out_col for out_col, src_col in capa["columnas"].items()
+                if out_col in self.columnas_deseadas
             }
             if not cols_para_capa:
                 continue
