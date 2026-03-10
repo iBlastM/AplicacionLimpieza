@@ -24,6 +24,17 @@ _RUTA_GEOJSON = os.path.join(_BASE, "GEOJSON", "Corregidora.geojson")
 _KEY_CORRECCIONES = "_mapa_correcciones"
 
 
+@st.cache_resource
+def _cargar_geojson_y_poligono():
+    """Carga el GeoJSON del municipio y construye el polígono Shapely.
+    Cacheado como recurso global: sólo se ejecuta una vez por sesión del servidor.
+    """
+    with open(_RUTA_GEOJSON, encoding="utf-8") as f:
+        geojson = json.load(f)
+    poligono = shape(geojson["features"][0]["geometry"])
+    return geojson, poligono
+
+
 def mostrar_mapa_geo(df: pd.DataFrame) -> pd.DataFrame:
     """Muestra mapa Plotly, dashboard de estadísticas y editor de correcciones.
 
@@ -42,10 +53,7 @@ def mostrar_mapa_geo(df: pd.DataFrame) -> pd.DataFrame:
         )
         return df
 
-    with open(_RUTA_GEOJSON, encoding="utf-8") as f:
-        geojson = json.load(f)
-
-    poligono = shape(geojson["features"][0]["geometry"])
+    geojson, poligono = _cargar_geojson_y_poligono()
 
     # Aplicar correcciones almacenadas en sesiones anteriores
     df = _aplicar_correcciones(df)

@@ -8,23 +8,22 @@ class LimpiadorProgramasSociales:
 
     COLUMNAS_OBJETIVO = {
         'CURP':             'CURP / Identificador',
-        'NOMBRE_PROGRAMA':  'Nombre del Programa',
-        'ID_USUARIO':       'ID Usuario',
-        'ID_PERSONA':       'ID Persona',
         'NOMBRE(S)_DE_PILA':'Nombre(s) de Pila',
         'AP_PATERNO':       'Apellido Paterno',
         'AP_MATERNO':       'Apellido Materno',
         'FECHA_NACIMIENTO': 'Fecha de Nacimiento',
+        'EDAD':             'Edad',
+        'GENERO':           'Género',
         'FECHA_REGISTRO':   'Fecha de Registro',
         'NUM_EXT':          'Número Exterior',
         'NUM_INT':          'Número Interior',
         'CODIGO_POSTAL':    'Código Postal',
-        'ID_PARENTESCO':    'ID Parentesco',
         'TELEFONO':         'Teléfono',
         'CELULAR':          'Celular',
         'CORREO':           'Correo Electrónico',
         'CALLE':            'Calle',
         'COLONIA':          'Colonia',
+        'DELEGACION':        'Delegación',
     }
 
     # Valores considerados basura en calles
@@ -215,6 +214,7 @@ class LimpiadorProgramasSociales:
             )
         self.df['ESTADO'] = 'QUERETARO'
         self.df['MUNICIPIO'] = 'CORREGIDORA'
+        self.df['DISTRITO_JUDICIAL'] = '1'
         return self
 
     def limpiar_telefonos(self):

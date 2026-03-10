@@ -8,9 +8,46 @@ from mapa_componente import mostrar_mapa_geo
 from acomodador import mostrar_acomodador, _KEY_ORDEN as _KEY_ORDEN_COLS
 
 
+@st.cache_data(show_spinner=False)
+def _cargar_archivo(nombre: str, data: bytes) -> pd.DataFrame:
+    """Carga CSV o Excel desde bytes. Cacheado por nombre+contenido del archivo."""
+    if nombre.endswith('.csv'):
+        return pd.read_csv(BytesIO(data), encoding='utf-8', on_bad_lines='skip')
+    return pd.read_excel(BytesIO(data))
+
+
+@st.cache_data(show_spinner=False)
+def _contar_duplicados(df: pd.DataFrame) -> int:
+    """Cuenta filas duplicadas. Cacheado para evitar recómputo en cada rerun."""
+    return int(df.duplicated().sum())
+
+
+@st.cache_data(show_spinner=False)
+def _a_csv(df: pd.DataFrame) -> bytes:
+    """Serializa el DataFrame a CSV. Cacheado por contenido del DataFrame."""
+    return df.to_csv(index=False).encode('utf-8')
+
+
+@st.cache_data(show_spinner=False)
+def _limpiar_nulos(df: pd.DataFrame) -> pd.DataFrame:
+    """Reemplaza None/NA/NaN con cadena vacía. Cacheado para evitar recómputo en cada rerun."""
+    return df.replace({None: "", pd.NA: "", float('nan'): ""})
+
+
+@st.cache_data(show_spinner=False)
+def _a_xlsx(df: pd.DataFrame) -> bytes:
+    """Serializa el DataFrame a Excel. Cacheado por contenido del DataFrame."""
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Limpio')
+    return buf.getvalue()
+
+
+@st.cache_data(show_spinner=False)
 def df_a_geojson(df: pd.DataFrame) -> bytes:
     """Convierte un DataFrame a GeoJSON (FeatureCollection).
     Usa LATITUD/LONGITUD para geometría Point si existen; de lo contrario null.
+    Cacheado por contenido del DataFrame.
     """
     tiene_geo = {'LATITUD', 'LONGITUD'}.issubset(df.columns)
     features = []
@@ -41,12 +78,9 @@ archivo_subido = st.file_uploader(
 
 if archivo_subido is not None:
     try:
-        # Cargar datos
+        # Cargar datos (cacheado: sólo se re-lee si cambia el contenido del archivo)
         nombre_archivo = archivo_subido.name
-        if nombre_archivo.endswith('.csv'):
-            df = pd.read_csv(archivo_subido, encoding='utf-8', on_bad_lines='skip')
-        else:
-            df = pd.read_excel(archivo_subido)
+        df = _cargar_archivo(nombre_archivo, archivo_subido.getvalue())
         st.success("Archivo cargado con éxito.")
 
         # Limpiar resultados anteriores cuando se sube un archivo diferente
@@ -56,7 +90,7 @@ if archivo_subido is not None:
             st.session_state["_ultimo_archivo"] = nombre_archivo
 
         total_cargados = len(df)
-        duplicados_cargados = int(df.duplicated().sum())
+        duplicados_cargados = _contar_duplicados(df)
         col_tot, col_dup, col_uniq = st.columns(3)
         col_tot.metric("Total de registros", f"{total_cargados:,}")
         col_dup.metric("Registros duplicados", f"{duplicados_cargados:,}")
@@ -106,12 +140,12 @@ if archivo_subido is not None:
                 )
                 opciones_col = ["—"] + df.columns.tolist()
                 CAMPOS_PERSONA = {
-                    'CURP', 'NOMBRE_PROGRAMA', 'ID_USUARIO', 'ID_PERSONA',
+                    'CURP',
                     'NOMBRE(S)_DE_PILA', 'AP_PATERNO', 'AP_MATERNO',
-                    'FECHA_NACIMIENTO', 'FECHA_REGISTRO', 'ID_PARENTESCO',
+                    'FECHA_NACIMIENTO', 'FECHA_REGISTRO', 'EDAD', 'GENERO',
                     'TELEFONO', 'CELULAR', 'CORREO',
                 }
-                CAMPOS_DIRECCION = {'NUM_EXT', 'NUM_INT', 'CODIGO_POSTAL', 'CALLE', 'COLONIA'}
+                CAMPOS_DIRECCION = {'NUM_EXT', 'NUM_INT', 'CODIGO_POSTAL', 'CALLE', 'COLONIA', 'DELEGACION'}
                 items_persona   = [(k, v) for k, v in LimpiadorProgramasSociales.COLUMNAS_OBJETIVO.items() if k in CAMPOS_PERSONA]
                 items_direccion = [(k, v) for k, v in LimpiadorProgramasSociales.COLUMNAS_OBJETIVO.items() if k in CAMPOS_DIRECCION]
 
@@ -310,8 +344,8 @@ if archivo_subido is not None:
             with st.expander("Ordenar columnas", expanded=False):
                 _df = mostrar_acomodador(_df)
 
-            # Limpieza final de nulos (se aplica sobre el df ya corregido)
-            _df_final = _df.replace({None: "", pd.NA: "", float('nan'): ""})
+            # Limpieza final de nulos (cacheado: solo se recalcula si el df cambió)
+            _df_final = _limpiar_nulos(_df)
 
             st.subheader("Resultado Final")
             st.dataframe(_df_final.head(10))
@@ -320,22 +354,18 @@ if archivo_subido is not None:
             col_csv, col_xlsx, col_geo = st.columns(3)
 
             # --- CSV ---
-            csv_bytes = _df_final.to_csv(index=False).encode('utf-8')
             col_csv.download_button(
                 label="Descargar CSV",
-                data=csv_bytes,
+                data=_a_csv(_df_final),
                 file_name="base_limpia.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
 
             # --- Excel ---
-            output_xlsx = BytesIO()
-            with pd.ExcelWriter(output_xlsx, engine='openpyxl') as writer:
-                _df_final.to_excel(writer, index=False, sheet_name='Limpio')
             col_xlsx.download_button(
                 label="Descargar Excel (.xlsx)",
-                data=output_xlsx.getvalue(),
+                data=_a_xlsx(_df_final),
                 file_name="base_limpia.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
@@ -363,3 +393,25 @@ if archivo_subido is not None:
 
 else:
     st.info("A la espera de un archivo.")
+
+# --- SECCIÓN DE AYUDA ---
+st.divider()
+with st.expander("Ayuda: ¿Cómo abrir un CSV en Excel respetando eñes y acentos?", expanded=False):
+    st.markdown(
+        """
+        Si al abrir un archivo CSV en Excel los caracteres especiales (ñ, á, é, etc.)
+        aparecen corruptos, sigue estos pasos para una importación limpia:
+
+        1. Abre Excel con un **libro en blanco** (no hagas doble clic directo en el archivo CSV).
+        2. Ve a la pestaña **Datos** en la cinta superior.
+        3. Selecciona **Obtener datos › Desde un archivo › Desde el texto/CSV**.
+        4. Busca tu archivo y haz clic en **Importar**. Se abrirá una ventana de vista previa.
+        5. **El paso clave:** en el menú desplegable **Origen del archivo**, selecciona:
+           - **65001: Unicode (UTF-8)** ← el más común.
+           - Si no funciona, prueba con **1252: Windows (Europa occidental)**.
+        6. Verifica en la vista previa que las eñes y acentos se vean correctamente.
+        7. Asegúrate de que el **Delimitador** sea el correcto (coma, punto y coma o tabulación)
+           para que los datos se separen en columnas.
+        8. Haz clic en **Cargar**.
+        """
+    )
