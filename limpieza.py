@@ -7,22 +7,22 @@ class LimpiadorProgramasSociales:
     """Clase que encapsula toda la lógica de limpieza para bases de datos de Programas Sociales."""
 
     COLUMNAS_OBJETIVO = {
-        'CURP':             'CURP / Identificador',
+        
         'NOMBRE(S)_DE_PILA':'Nombre(s) de Pila',
         'AP_PATERNO':       'Apellido Paterno',
         'AP_MATERNO':       'Apellido Materno',
+        'CURP':             'CURP / Identificador',
+        'GENERO':           'Género',
         'FECHA_NACIMIENTO': 'Fecha de Nacimiento',
         'EDAD':             'Edad',
-        'GENERO':           'Género',
-        'FECHA_REGISTRO':   'Fecha de Registro',
-        'NUM_EXT':          'Número Exterior',
-        'NUM_INT':          'Número Interior',
-        'CODIGO_POSTAL':    'Código Postal',
         'TELEFONO':         'Teléfono',
         'CELULAR':          'Celular',
         'CORREO':           'Correo Electrónico',
         'CALLE':            'Calle',
+        'NUM_EXT':          'Número Exterior',
+        'NUM_INT':          'Número Interior',
         'COLONIA':          'Colonia',
+        'CODIGO_POSTAL':    'Código Postal',
         'DELEGACION':        'Delegación',
     }
 

@@ -140,12 +140,14 @@ if archivo_subido is not None:
                 )
                 opciones_col = ["—"] + df.columns.tolist()
                 CAMPOS_PERSONA = {
+                    'NOMBRE(S)_DE_PILA',
+                    'AP_PATERNO', 'AP_MATERNO',
                     'CURP',
-                    'NOMBRE(S)_DE_PILA', 'AP_PATERNO', 'AP_MATERNO',
-                    'FECHA_NACIMIENTO', 'FECHA_REGISTRO', 'EDAD', 'GENERO',
-                    'TELEFONO', 'CELULAR', 'CORREO',
+                    'GENERO',
+                    'FECHA_NACIMIENTO', 'EDAD',
+                    'TELEFONO', 'CELULAR', 'CORREO'
                 }
-                CAMPOS_DIRECCION = {'NUM_EXT', 'NUM_INT', 'CODIGO_POSTAL', 'CALLE', 'COLONIA', 'DELEGACION'}
+                CAMPOS_DIRECCION = {'CALLE', 'NUM_EXT', 'NUM_INT', 'COLONIA', 'CODIGO_POSTAL', 'DELEGACION'}
                 items_persona   = [(k, v) for k, v in LimpiadorProgramasSociales.COLUMNAS_OBJETIVO.items() if k in CAMPOS_PERSONA]
                 items_direccion = [(k, v) for k, v in LimpiadorProgramasSociales.COLUMNAS_OBJETIVO.items() if k in CAMPOS_DIRECCION]
 
