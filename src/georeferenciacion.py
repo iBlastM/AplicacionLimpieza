@@ -33,7 +33,7 @@ PROVEEDORES = {
 # Capas GeoJSON disponibles para spatial join
 # Cada capa define: ruta al archivo y mapeo {columna_origen: columna_salida}
 # ======================================================================
-_BASE = os.path.dirname(__file__)
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 CAPAS_GEOJSON: dict = {
     "SECCION_ELECT_SABANA_2024": {
@@ -248,13 +248,14 @@ class GeoReferenciador:
 
         mask_valido = df['LATITUD'].notna() & df['LONGITUD'].notna()
         geometry = [
-            Point(lon, lat) if valido else ""
+            Point(lon, lat) if valido else None
             for lat, lon, valido in zip(df['LATITUD'], df['LONGITUD'], mask_valido)
         ]
 
         gdf_puntos = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:4326")
         gdf_con_geom = gdf_puntos[mask_valido].copy()
         gdf_sin_geom = gdf_puntos[~mask_valido].copy()
+        gdf_con_geom["__geo_row_id"] = range(len(gdf_con_geom))
 
         out_cols = [c for c in self.columnas_deseadas if c in COLUMNAS_DISPONIBLES]
 
@@ -277,7 +278,11 @@ class GeoReferenciador:
                     gdf_con_geom[out_col] = pd.Series(dtype='object')
                 continue
 
-            puntos = gpd.GeoDataFrame(geometry=gdf_con_geom.geometry, crs="EPSG:4326")
+            puntos = gpd.GeoDataFrame(
+                gdf_con_geom[["__geo_row_id", "geometry"]].reset_index(drop=True),
+                geometry="geometry",
+                crs="EPSG:4326",
+            )
             geo_col = gdf_ref.geometry.name
             joined = gpd.sjoin(
                 puntos,
@@ -285,13 +290,14 @@ class GeoReferenciador:
                 how="left",
                 predicate="within",
             )
-            joined = joined[~joined.index.duplicated(keep='first')]
+            joined = joined.drop_duplicates(subset="__geo_row_id", keep="first")
+            joined = joined.set_index("__geo_row_id")
 
             for src_col, out_col in cols_para_capa.items():
-                gdf_con_geom[out_col] = joined[src_col]
+                gdf_con_geom[out_col] = gdf_con_geom["__geo_row_id"].map(joined[src_col])
 
         df_final = pd.concat([gdf_con_geom, gdf_sin_geom]).sort_index()
-        df_final = df_final.drop(columns=['geometry'])
+        df_final = df_final.drop(columns=['geometry', '__geo_row_id'], errors='ignore')
         df_final = pd.DataFrame(df_final)
 
         return df_final

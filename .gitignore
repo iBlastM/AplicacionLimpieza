@@ -3,7 +3,7 @@ PROGRAMAS_SOCIALES.xlsx
 PROGRAMAS_SOCIALES_LIMPIA.xlsx
 scriptLimpieza.py
 __pycache__/
-analisisSE.ipynb
+analisisSE.py
 analizarResultados.py
 base_limpia (1).xlsx
 base_limpia.geojson

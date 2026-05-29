@@ -17,7 +17,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from shapely.geometry import Point, shape
 
-_BASE = os.path.dirname(__file__)
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _RUTA_GEOJSON = os.path.join(_BASE, "GEOJSON", "Corregidora.geojson")
 
 # Clave de session_state donde se guardan las correcciones pendientes
