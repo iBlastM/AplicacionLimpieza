@@ -87,6 +87,84 @@ def _crear_geocoder(proveedor: str):
         raise ValueError(f"Proveedor desconocido: {proveedor}")
 
 
+# ======================================================================
+# Cruce Colonia → Secciones Electorales (sin geocodificación)
+# ======================================================================
+
+CAPAS_SECCIONES = {
+    "2024": {
+        "path": os.path.join(_BASE, "GEOJSON/SECCION_ELECT_SABANA_2024.geojson"),
+        "col_seccion": "SECCION",
+    },
+    "2025": {
+        "path": os.path.join(_BASE, "GEOJSON/SE_EDO_QRO_24_25.geojson"),
+        "col_seccion": "25_SECCION",
+    },
+}
+
+
+def calcular_secciones_por_colonia(
+    df: pd.DataFrame,
+    anio_secciones: str = "2024",
+    col_colonia: str = "COLONIA",
+) -> pd.DataFrame:
+    """
+    Para cada registro, busca la colonia en COL_LOC_EDO_QRO.geojson y determina
+    en qué secciones electorales cae el polígono de esa colonia.
+
+    Agrega la columna SECCIONES_DE_COLONIA con una lista de secciones separadas
+    por coma.
+    """
+    if col_colonia not in df.columns:
+        return df
+
+    colonias_path = os.path.join(_BASE, "GEOJSON/COL_LOC_EDO_QRO.geojson")
+    gdf_colonias = gpd.read_file(colonias_path)
+    if gdf_colonias.crs is None or gdf_colonias.crs.to_epsg() != 4326:
+        gdf_colonias = gdf_colonias.to_crs(epsg=4326)
+
+    capa_sec = CAPAS_SECCIONES[anio_secciones]
+    gdf_secciones = gpd.read_file(capa_sec["path"])
+    col_sec = capa_sec["col_seccion"]
+    geo_col = gdf_secciones.geometry.name
+    gdf_secciones = gdf_secciones[[col_sec, geo_col]]
+    if gdf_secciones.crs is None or gdf_secciones.crs.to_epsg() != 4326:
+        gdf_secciones = gdf_secciones.to_crs(epsg=4326)
+
+    colonias_unicas = (
+        df[col_colonia]
+        .dropna()
+        .loc[lambda s: s.str.strip() != ""]
+        .unique()
+        .tolist()
+    )
+
+    mapeo_secciones: dict[str, str] = {}
+
+    for nombre_col in colonias_unicas:
+        nombre_norm = nombre_col.strip().upper()
+        match = gdf_colonias[gdf_colonias["NOM_COL"].str.upper().str.strip() == nombre_norm]
+        if match.empty:
+            mapeo_secciones[nombre_col] = ""
+            continue
+
+        poligono_colonia = match.union_all()
+        intersecta = gdf_secciones[gdf_secciones.geometry.intersects(poligono_colonia)]
+
+        if intersecta.empty:
+            mapeo_secciones[nombre_col] = ""
+        else:
+            secciones = sorted(intersecta[col_sec].dropna().unique().tolist(), key=lambda x: str(x))
+            mapeo_secciones[nombre_col] = ", ".join(str(int(s)) if isinstance(s, float) else str(s) for s in secciones)
+
+    df = df.copy()
+    df["SECCIONES_DE_COLONIA"] = df[col_colonia].map(
+        lambda c: mapeo_secciones.get(c, "") if pd.notna(c) else ""
+    )
+
+    return df
+
+
 class GeoReferenciador:
     """Clase que geocodifica direcciones y asigna atributos geográficos mediante spatial join."""
 

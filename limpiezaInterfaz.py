@@ -6,6 +6,7 @@ from src.ui_secciones import (
     ejecutar_procesamiento,
     seccion_ayuda,
     seccion_columnas_eliminar,
+    seccion_cruce_colonia_secciones,
     seccion_descargas,
     seccion_georeferenciacion_config,
     seccion_mapeo_columnas,
@@ -40,11 +41,13 @@ if archivo_subido is not None:
         columnas_a_eliminar                    = seccion_columnas_eliminar(df)
         mapeo_personalizado                    = seccion_mapeo_columnas(df)
         aplicar_geo, proveedor_geo, columnas_geo = seccion_georeferenciacion_config()
+        aplicar_cruce, anio_secciones = seccion_cruce_colonia_secciones()
 
         if st.button("Iniciar Limpieza"):
             resultado = ejecutar_procesamiento(
                 df, columnas_a_eliminar, mapeo_personalizado,
                 aplicar_geo, proveedor_geo, columnas_geo,
+                aplicar_cruce, anio_secciones,
             )
             st.session_state["_resultado_procesado"] = resultado
             st.session_state.pop("_mapa_correcciones", None)

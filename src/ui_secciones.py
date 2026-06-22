@@ -8,6 +8,7 @@ from src.georeferenciacion import (
     COLUMNAS_DISPONIBLES,
     GeoReferenciador,
     PROVEEDORES,
+    calcular_secciones_por_colonia,
 )
 from src.limpieza import LimpiadorProgramasSociales
 from src.mapa_componente import mostrar_mapa_geo
@@ -177,6 +178,29 @@ def seccion_georeferenciacion_config() -> tuple[bool, str, list]:
     return aplicar, proveedor, columnas
 
 
+# ── Cruce Colonia → Secciones ────────────────────────────────────────────
+
+def seccion_cruce_colonia_secciones() -> tuple[bool, str]:
+    """Devuelve (aplicar_cruce, anio_secciones)."""
+    aplicar = st.checkbox(
+        "Verificar secciones por colonia",
+        help=(
+            "Busca en qué secciones electorales cae el polígono de cada colonia. "
+            "Requiere que la base tenga una columna de COLONIA. "
+            "Agrega la columna SECCIONES_DE_COLONIA con la lista de secciones donde cae."
+        ),
+    )
+    anio = "2024"
+    if aplicar:
+        anio = st.radio(
+            "Secciones electorales a usar",
+            options=["2024", "2025"],
+            horizontal=True,
+            help="Selecciona el año de las secciones electorales contra las cuales cruzar las colonias.",
+        )
+    return aplicar, anio
+
+
 # ── Procesamiento ─────────────────────────────────────────────────────────
 
 def ejecutar_procesamiento(
@@ -186,6 +210,8 @@ def ejecutar_procesamiento(
     aplicar_geo: bool,
     proveedor_geo: str,
     columnas_geo: list[str],
+    aplicar_cruce_colonias: bool = False,
+    anio_secciones: str = "2024",
 ) -> dict:
     if columnas_a_eliminar:
         df = df.drop(columns=columnas_a_eliminar)
@@ -205,6 +231,10 @@ def ejecutar_procesamiento(
     if aplicar_geo:
         df, msg_geo = _ejecutar_georeferenciacion(df, proveedor_geo, columnas_geo)
 
+    msg_cruce = ""
+    if aplicar_cruce_colonias:
+        df, msg_cruce = _ejecutar_cruce_colonias(df, anio_secciones)
+
     return {
         "df":                   df,
         "geo_aplicado":         aplicar_geo,
@@ -212,6 +242,7 @@ def ejecutar_procesamiento(
         "duplicados_eliminados": duplicados_eliminados,
         "advertencias":         advertencias,
         "msg_geo":              msg_geo,
+        "msg_cruce":            msg_cruce,
     }
 
 
@@ -245,6 +276,27 @@ def _ejecutar_georeferenciacion(
     return df, msg
 
 
+def _ejecutar_cruce_colonias(
+    df: pd.DataFrame, anio_secciones: str
+) -> tuple[pd.DataFrame, str]:
+    col_colonia = "COLONIA"
+    if col_colonia not in df.columns:
+        return df, "No se encontró columna COLONIA en la base — cruce omitido."
+
+    with st.status("Calculando secciones por colonia...", expanded=True) as status:
+        df = calcular_secciones_por_colonia(df, anio_secciones=anio_secciones, col_colonia=col_colonia)
+        status.update(label="¡Cruce colonia–secciones terminado!", state="complete", expanded=False)
+
+    con_secciones = int((df["SECCIONES_DE_COLONIA"] != "").sum())
+    multi_seccion = int(df["SECCIONES_DE_COLONIA"].str.contains(",").sum())
+    msg = (
+        f"Cruce colonia→secciones ({anio_secciones}): "
+        f"{con_secciones}/{len(df)} registros con secciones asignadas. "
+        f"{multi_seccion} registros en colonias que caen en múltiples secciones."
+    )
+    return df, msg
+
+
 # ── Resultados ────────────────────────────────────────────────────────────
 
 def seccion_resultados(res: dict) -> pd.DataFrame:
@@ -267,6 +319,9 @@ def seccion_resultados(res: dict) -> pd.DataFrame:
         if res["msg_geo"]:
             st.success(res["msg_geo"])
         df = mostrar_mapa_geo(df)
+
+    if res.get("msg_cruce"):
+        st.info(res["msg_cruce"])
 
     with st.expander("Ordenar columnas", expanded=False):
         df = mostrar_acomodador(df)
