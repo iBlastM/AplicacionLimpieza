@@ -93,9 +93,8 @@ class LimpiadorColumnas:
         else:
             faltantes = [c for c in requeridas if c not in self.df.columns]
             self.advertencias.append(f"No se pudo crear NOMBRE_COMPLETO: falta(n) {', '.join(faltantes)}.")
-        self.df['ESTADO'] = 'QUERETARO'
-        self.df['MUNICIPIO'] = 'CORREGIDORA'
-        self.df['DISTRITO_JUDICIAL'] = '1'
+        self.df['ESTADO'] = getattr(self, 'estado', 'QUERETARO') or 'QUERETARO'
+        self.df['MUNICIPIO'] = getattr(self, 'municipio', 'CORREGIDORA') or 'CORREGIDORA'
         return self
 
     def eliminar_espacios_columnas(self):

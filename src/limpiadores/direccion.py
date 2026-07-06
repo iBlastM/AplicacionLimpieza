@@ -42,8 +42,10 @@ class LimpiadorDireccion:
         if 'CODIGO_POSTAL' in self.df.columns:
             self.df['CODIGO_POSTAL'] = self.df['CODIGO_POSTAL'].astype(str).str.replace(r'\D', '', regex=True)
             mask_cp = (self.df['CODIGO_POSTAL'].str.len() == 5) & (self.df['CODIGO_POSTAL'] != 'nan')
+            # Solo se antepone "C.P. " cuando hay un código postal válido de 5 dígitos.
+            # Si no lo hay, se deja vacío para que no aparezca un "C.P." suelto en la dirección.
+            self.df.loc[mask_cp, 'CODIGO_POSTAL'] = "C.P. " + self.df.loc[mask_cp, 'CODIGO_POSTAL']
             self.df.loc[~mask_cp, 'CODIGO_POSTAL'] = ""
-            self.df['CODIGO_POSTAL'] = "C.P. " + self.df['CODIGO_POSTAL']
         else:
             self.advertencias.append("Columna 'CODIGO_POSTAL' no encontrada; se omitió su limpieza.")
 

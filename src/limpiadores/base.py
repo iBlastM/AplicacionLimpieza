@@ -10,10 +10,19 @@ class BaseLimpiador:
 
     VALORES_VACIOS = VALORES_VACIOS
 
-    def __init__(self, df: pd.DataFrame, mapeo_columnas: dict[str, str] | None = None):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        mapeo_columnas: dict[str, str] | None = None,
+        estado: str = "QUERETARO",
+        municipio: str = "CORREGIDORA",
+    ):
         self.df = df.copy()
         self.advertencias: list[str] = []
         self.mapeo_columnas: dict[str, str] = mapeo_columnas or {}
+        # Valores geográficos que se asignan a toda la base (seleccionables desde la UI).
+        self.estado: str = (estado or "").strip().upper()
+        self.municipio: str = (municipio or "").strip().upper()
 
     def _tiene_columnas(self, *columnas: str) -> bool:
         """Devuelve True si todas las columnas existen; si no, registra una advertencia."""

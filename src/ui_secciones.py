@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from src.acomodador import mostrar_acomodador
-from src.cache_helpers import a_csv, a_parquet, a_xlsx, contar_duplicados, df_a_geojson
+from src.cache_helpers import a_csv, a_parquet, a_xlsx, cargar_estados_municipios, contar_duplicados, df_a_geojson
 from src.georeferenciacion import (
     CAPAS_GEOJSON,
     COLUMNAS_DISPONIBLES,
@@ -46,6 +46,63 @@ def seccion_columnas_eliminar(df: pd.DataFrame) -> list[str]:
         if columnas:
             st.warning(f"Se eliminarán {len(columnas)} columna(s): {', '.join(columnas)}")
     return columnas
+
+
+# ── Estado y Municipio ────────────────────────────────────────────────────
+
+def seccion_estado_municipio() -> tuple[str, str]:
+    """Selección en cascada de estado y municipio.
+
+    Devuelve (estado, municipio) en MAYÚSCULAS para asignarlos a toda la base.
+    Primero se elige el estado y luego el municipio correspondiente a ese estado.
+    """
+    _ESTADO_DEFECTO    = "Querétaro"
+    _MUNICIPIO_DEFECTO = "Corregidora"
+
+    catalogo = cargar_estados_municipios()
+
+    with st.expander("Estado y Municipio de la base", expanded=True):
+        if not catalogo:
+            st.warning(
+                "No se encontró el catálogo de estados y municipios "
+                "(data/estados_municipios.json). Se usarán los valores por defecto: "
+                f"{_MUNICIPIO_DEFECTO}, {_ESTADO_DEFECTO}."
+            )
+            return _ESTADO_DEFECTO.upper(), _MUNICIPIO_DEFECTO.upper()
+
+        st.caption(
+            "Selecciona el estado y el municipio que se asignarán a todos los registros "
+            "de la base. Primero elige el estado; el listado de municipios se actualizará "
+            "en consecuencia."
+        )
+
+        estados = list(catalogo.keys())
+        idx_estado = estados.index(_ESTADO_DEFECTO) if _ESTADO_DEFECTO in estados else 0
+
+        col_estado, col_municipio = st.columns(2)
+        with col_estado:
+            estado = st.selectbox(
+                "Estado",
+                options=estados,
+                index=idx_estado,
+                key="_sel_estado",
+            )
+
+        municipios = catalogo.get(estado, [])
+        idx_municipio = (
+            municipios.index(_MUNICIPIO_DEFECTO)
+            if _MUNICIPIO_DEFECTO in municipios else 0
+        )
+        with col_municipio:
+            municipio = st.selectbox(
+                "Municipio",
+                options=municipios,
+                index=idx_municipio,
+                key="_sel_municipio",
+                placeholder="Selecciona un municipio",
+            ) if municipios else ""
+
+    return str(estado).strip().upper(), str(municipio).strip().upper()
 
 
 # ── Mapeo de columnas ─────────────────────────────────────────────────────
@@ -212,12 +269,19 @@ def ejecutar_procesamiento(
     columnas_geo: list[str],
     aplicar_cruce_colonias: bool = False,
     anio_secciones: str = "2024",
+    estado: str = "QUERETARO",
+    municipio: str = "CORREGIDORA",
 ) -> dict:
     if columnas_a_eliminar:
         df = df.drop(columns=columnas_a_eliminar)
 
     with st.status("Procesando limpieza de datos...", expanded=True) as status:
-        limpiador = LimpiadorProgramasSociales(df, mapeo_columnas=mapeo_personalizado)
+        limpiador = LimpiadorProgramasSociales(
+            df,
+            mapeo_columnas=mapeo_personalizado,
+            estado=estado,
+            municipio=municipio,
+        )
         df, advertencias = limpiador.ejecutar_limpieza()
 
         registros_antes = len(df)

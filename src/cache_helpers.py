@@ -1,8 +1,34 @@
 import json
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+
+
+_CATALOGO_ESTADOS_MUNICIPIOS = (
+    Path(__file__).resolve().parent.parent / "data" / "estados_municipios.json"
+)
+
+
+@st.cache_data(show_spinner=False)
+def cargar_estados_municipios() -> dict[str, list[str]]:
+    """Carga el catálogo {estado: [municipios]} de México desde data/estados_municipios.json.
+
+    Devuelve un diccionario ordenado alfabéticamente por estado, con la lista de
+    municipios de cada estado también ordenada. Si el archivo no existe o no se puede
+    leer, devuelve un diccionario vacío.
+    """
+    try:
+        with open(_CATALOGO_ESTADOS_MUNICIPIOS, encoding="utf-8") as fh:
+            datos = json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+    return {
+        estado: sorted(municipios)
+        for estado, municipios in sorted(datos.items())
+    }
 
 
 @st.cache_data(show_spinner=False)

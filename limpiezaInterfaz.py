@@ -8,6 +8,7 @@ from src.ui_secciones import (
     seccion_columnas_eliminar,
     seccion_cruce_colonia_secciones,
     seccion_descargas,
+    seccion_estado_municipio,
     seccion_georeferenciacion_config,
     seccion_mapeo_columnas,
     seccion_metricas_carga,
@@ -39,6 +40,7 @@ if archivo_subido is not None:
 
         seccion_metricas_carga(df)
         columnas_a_eliminar                    = seccion_columnas_eliminar(df)
+        estado_sel, municipio_sel              = seccion_estado_municipio()
         mapeo_personalizado                    = seccion_mapeo_columnas(df)
         aplicar_geo, proveedor_geo, columnas_geo = seccion_georeferenciacion_config()
         aplicar_cruce, anio_secciones = seccion_cruce_colonia_secciones()
@@ -48,6 +50,7 @@ if archivo_subido is not None:
                 df, columnas_a_eliminar, mapeo_personalizado,
                 aplicar_geo, proveedor_geo, columnas_geo,
                 aplicar_cruce, anio_secciones,
+                estado_sel, municipio_sel,
             )
             st.session_state["_resultado_procesado"] = resultado
             st.session_state.pop("_mapa_correcciones", None)
