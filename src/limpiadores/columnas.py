@@ -72,7 +72,7 @@ class LimpiadorColumnas:
             )
             return self
         self.df['NOMBRE_PRE'] = (
-            (self.df['AP_PATERNO'] + " " + self.df['AP_MATERNO'] + " " + self.df['NOMBRE(S)_DE_PILA'])
+            (self.df['NOMBRE(S)_DE_PILA'] + " " + self.df['AP_PATERNO'] + " " + self.df['AP_MATERNO'])
             .str.title()
         )
         return self
