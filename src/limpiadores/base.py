@@ -16,6 +16,7 @@ class BaseLimpiador:
         mapeo_columnas: dict[str, str] | None = None,
         estado: str = "QUERETARO",
         municipio: str = "CORREGIDORA",
+        sobrescribir_estado_municipio: bool = False,
     ):
         self.df = df.copy()
         self.advertencias: list[str] = []
@@ -23,6 +24,9 @@ class BaseLimpiador:
         # Valores geográficos que se asignan a toda la base (seleccionables desde la UI).
         self.estado: str = (estado or "").strip().upper()
         self.municipio: str = (municipio or "").strip().upper()
+        # Cuando es True, ESTADO/MUNICIPIO se sobrescriben con los valores anteriores;
+        # cuando es False, se conservan las columnas ESTADO/MUNICIPIO presentes en la base.
+        self.sobrescribir_estado_municipio: bool = sobrescribir_estado_municipio
 
     def _tiene_columnas(self, *columnas: str) -> bool:
         """Devuelve True si todas las columnas existen; si no, registra una advertencia."""
