@@ -22,4 +22,6 @@ COLUMNAS_OBJETIVO = {
     'COLONIA':           'Colonia',
     'CODIGO_POSTAL':     'Código Postal',
     'DELEGACION':        'Delegación',
+    'ESTADO':            'Estado',
+    'MUNICIPIO':         'Municipio',
 }

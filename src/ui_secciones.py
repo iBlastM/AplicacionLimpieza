@@ -50,25 +50,47 @@ def seccion_columnas_eliminar(df: pd.DataFrame) -> list[str]:
 
 # ── Estado y Municipio ────────────────────────────────────────────────────
 
-def seccion_estado_municipio() -> tuple[str, str]:
-    """Selección en cascada de estado y municipio.
+def seccion_estado_municipio() -> tuple[bool, str, str]:
+    """Selección opcional de estado y municipio para asignar a toda la base.
 
-    Devuelve (estado, municipio) en MAYÚSCULAS para asignarlos a toda la base.
-    Primero se elige el estado y luego el municipio correspondiente a ese estado.
+    Devuelve (sobrescribir, estado, municipio). Cuando `sobrescribir` es True,
+    los valores seleccionados (en MAYÚSCULAS) se asignarán a todos los registros,
+    sobrescribiendo las columnas ESTADO/MUNICIPIO si estuvieran presentes.
+    Cuando es False, se conservan las columnas Estado/Municipio de la base.
     """
     _ESTADO_DEFECTO    = "Querétaro"
     _MUNICIPIO_DEFECTO = "Corregidora"
 
     catalogo = cargar_estados_municipios()
 
-    with st.expander("Estado y Municipio de la base", expanded=True):
+    with st.expander("Estado y Municipio de la base", expanded=False):
+        sobrescribir = st.checkbox(
+            "Asignar Estado y Municipio a toda la base",
+            value=False,
+            key="_usar_estado_municipio",
+            help=(
+                "Esta opción **sobrescribirá** las columnas \"Municipio\" y \"Estado\" "
+                "de estar presentes en la base, asignando a **todos** los registros el "
+                "estado y municipio seleccionados. "
+                "Si se deja desactivada, la app conserva las columnas \"Estado\" y "
+                "\"Municipio\" detectadas en el archivo."
+            ),
+        )
+
+        if not sobrescribir:
+            st.caption(
+                "Opción desactivada: se conservarán las columnas \"Estado\" y \"Municipio\" "
+                "que existan en la base."
+            )
+            return False, "", ""
+
         if not catalogo:
             st.warning(
                 "No se encontró el catálogo de estados y municipios "
                 "(data/estados_municipios.json). Se usarán los valores por defecto: "
                 f"{_MUNICIPIO_DEFECTO}, {_ESTADO_DEFECTO}."
             )
-            return _ESTADO_DEFECTO.upper(), _MUNICIPIO_DEFECTO.upper()
+            return True, _ESTADO_DEFECTO.upper(), _MUNICIPIO_DEFECTO.upper()
 
         st.caption(
             "Selecciona el estado y el municipio que se asignarán a todos los registros "
@@ -102,7 +124,7 @@ def seccion_estado_municipio() -> tuple[str, str]:
                 placeholder="Selecciona un municipio",
             ) if municipios else ""
 
-    return str(estado).strip().upper(), str(municipio).strip().upper()
+    return True, str(estado).strip().upper(), str(municipio).strip().upper()
 
 
 # ── Mapeo de columnas ─────────────────────────────────────────────────────
@@ -137,7 +159,8 @@ def _mapeo_manual(df: pd.DataFrame) -> dict:
         'NOMBRE(S)_DE_PILA', 'AP_PATERNO', 'AP_MATERNO', 'CURP',
         'GENERO', 'FECHA_NACIMIENTO', 'EDAD', 'TELEFONO', 'CELULAR', 'CORREO',
     }
-    _CAMPOS_DIRECCION = {'CALLE', 'NUM_EXT', 'NUM_INT', 'COLONIA', 'CODIGO_POSTAL', 'DELEGACION'}
+    _CAMPOS_DIRECCION = {'CALLE', 'NUM_EXT', 'NUM_INT', 'COLONIA', 'CODIGO_POSTAL', 'DELEGACION',
+                         'ESTADO', 'MUNICIPIO'}
 
     items_persona   = [(k, v) for k, v in LimpiadorProgramasSociales.COLUMNAS_OBJETIVO.items()
                        if k in _CAMPOS_PERSONA]
@@ -271,6 +294,7 @@ def ejecutar_procesamiento(
     anio_secciones: str = "2024",
     estado: str = "QUERETARO",
     municipio: str = "CORREGIDORA",
+    sobrescribir_estado_municipio: bool = False,
 ) -> dict:
     if columnas_a_eliminar:
         df = df.drop(columns=columnas_a_eliminar)
@@ -281,6 +305,7 @@ def ejecutar_procesamiento(
             mapeo_columnas=mapeo_personalizado,
             estado=estado,
             municipio=municipio,
+            sobrescribir_estado_municipio=sobrescribir_estado_municipio,
         )
         df, advertencias = limpiador.ejecutar_limpieza()
 

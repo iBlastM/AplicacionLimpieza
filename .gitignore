@@ -9,3 +9,7 @@ base_limpia (1).xlsx
 base_limpia.geojson
 muestra.py
 data/
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
