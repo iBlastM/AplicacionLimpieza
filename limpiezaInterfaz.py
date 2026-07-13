@@ -40,7 +40,7 @@ if archivo_subido is not None:
 
         seccion_metricas_carga(df)
         columnas_a_eliminar                    = seccion_columnas_eliminar(df)
-        estado_sel, municipio_sel              = seccion_estado_municipio()
+        sobrescribir_em, estado_sel, municipio_sel = seccion_estado_municipio()
         mapeo_personalizado                    = seccion_mapeo_columnas(df)
         aplicar_geo, proveedor_geo, columnas_geo = seccion_georeferenciacion_config()
         aplicar_cruce, anio_secciones = seccion_cruce_colonia_secciones()
@@ -51,6 +51,7 @@ if archivo_subido is not None:
                 aplicar_geo, proveedor_geo, columnas_geo,
                 aplicar_cruce, anio_secciones,
                 estado_sel, municipio_sel,
+                sobrescribir_em,
             )
             st.session_state["_resultado_procesado"] = resultado
             st.session_state.pop("_mapa_correcciones", None)
