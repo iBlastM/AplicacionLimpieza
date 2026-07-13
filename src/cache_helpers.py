@@ -7,13 +7,13 @@ import streamlit as st
 
 
 _CATALOGO_ESTADOS_MUNICIPIOS = (
-    Path(__file__).resolve().parent.parent / "data" / "estados_municipios.json"
+    Path(__file__).resolve().parent.parent / "json" / "estados_municipios.json"
 )
 
 
 @st.cache_data(show_spinner=False)
 def cargar_estados_municipios() -> dict[str, list[str]]:
-    """Carga el catálogo {estado: [municipios]} de México desde data/estados_municipios.json.
+    """Carga el catálogo {estado: [municipios]} de México desde json/estados_municipios.json.
 
     Devuelve un diccionario ordenado alfabéticamente por estado, con la lista de
     municipios de cada estado también ordenada. Si el archivo no existe o no se puede
