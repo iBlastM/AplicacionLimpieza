@@ -93,9 +93,37 @@ class LimpiadorColumnas:
         else:
             faltantes = [c for c in requeridas if c not in self.df.columns]
             self.advertencias.append(f"No se pudo crear NOMBRE_COMPLETO: falta(n) {', '.join(faltantes)}.")
-        self.df['ESTADO'] = getattr(self, 'estado', 'QUERETARO') or 'QUERETARO'
-        self.df['MUNICIPIO'] = getattr(self, 'municipio', 'CORREGIDORA') or 'CORREGIDORA'
+
+        self._asignar_estado_municipio()
         return self
+
+    def _asignar_estado_municipio(self):
+        """Asigna ESTADO y MUNICIPIO siguiendo el orden de prioridad:
+
+        1. Si el usuario activó la opción "Estado y Municipio de la base",
+           se sobrescriben ambas columnas con los valores seleccionados
+           (esto también reemplaza las columnas existentes en la base).
+        2. En caso contrario, se conservan las columnas ESTADO/MUNICIPIO ya
+           presentes en la base o las creadas por el mapeo manual del usuario.
+        """
+        sobrescribir = getattr(self, 'sobrescribir_estado_municipio', False)
+
+        if sobrescribir:
+            if getattr(self, 'estado', ''):
+                self.df['ESTADO'] = self.estado
+            if getattr(self, 'municipio', ''):
+                self.df['MUNICIPIO'] = self.municipio
+            return
+
+        # Sin sobrescritura: se respetan las columnas detectadas en la base.
+        faltantes = [c for c in ('ESTADO', 'MUNICIPIO') if c not in self.df.columns]
+        if faltantes:
+            self.advertencias.append(
+                "No se encontraron columnas "
+                + " y ".join(f"'{c}'" for c in faltantes)
+                + " en la base. Activa la opción 'Estado y Municipio de la base' "
+                "para asignarlas manualmente."
+            )
 
     def eliminar_espacios_columnas(self):
         self.df.columns = self.df.columns.str.replace(r'\s+', '_', regex=True)
